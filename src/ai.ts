@@ -1,59 +1,43 @@
 import OpenAI from 'openai';
-import { PhysicsEngine } from './physics';
+import { PhysicsEngine, PhysicsObject } from './physics';
 import { UIManager } from './uiManager';
 import { HandData } from './handTracking';
 
-// OpenRouter configuration for GLM 4.5 AIR (free)
+// OpenRouter configuration
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const OPENROUTER_MODEL = 'z-ai/glm-4.5-air:free';
 
-// Color palette for objects
+// Color palette
 const COLORS: Record<string, string> = {
-  red: '#ef4444',
-  orange: '#f97316',
-  yellow: '#eab308',
-  green: '#22c55e',
-  blue: '#3b82f6',
-  purple: '#a855f7',
-  pink: '#ec4899',
-  white: '#ffffff',
-  black: '#1a1a1a',
-  gray: '#6b7280',
-  cyan: '#06b6d4',
-  teal: '#14b8a6',
-  amber: '#f59e0b',
-  violet: '#8b5cf6',
-  emerald: '#10b981',
-  lime: '#84cc16',
-  indigo: '#6366f1',
-  rose: '#f43f5e'
+  red: '#ef4444', orange: '#f97316', yellow: '#eab308', green: '#22c55e',
+  blue: '#3b82f6', purple: '#a855f7', pink: '#ec4899', white: '#ffffff',
+  black: '#1a1a1a', gray: '#6b7280', cyan: '#06b6d4', teal: '#14b8a6',
+  amber: '#f59e0b', violet: '#8b5cf6', emerald: '#10b981', lime: '#84cc16',
+  indigo: '#6366f1', rose: '#f43f5e', gold: '#fbbf24', silver: '#9ca3af'
 };
 
-// Shape types available
-const SHAPES = ['ball', 'circle', 'rectangle', 'square', 'box', 'triangle', 'hexagon', 'pentagon', 'star', 'polygon'];
-
 /**
- * Conversational AI Agent for FistFirst Learn
+ * Intelligent AI Agent for FistFirst Learn
  * 
- * Features:
- * - Full conversational abilities
- * - Scene awareness (knows what objects are on screen)
- * - Finger pointing integration (create/modify where user points)
- * - Code-like capability to create anything
- * - Natural language understanding
+ * This AI actually THINKS before acting:
+ * - Analyzes user intent from context
+ * - Understands references like "it", "that", "the circle"
+ * - Modifies existing objects when user means modification
+ * - Creates new objects only when user wants creation
  */
 export class AIAssistant {
   private openai: OpenAI | null = null;
   private physics: PhysicsEngine;
   private uiManager: UIManager;
-  private conversationHistory: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+  private conversationHistory: { role: 'user' | 'assistant'; content: string }[] = [];
   private onMessage: ((message: string, isUser: boolean) => void) | null = null;
   private isProcessing: boolean = false;
   
-  // Scene context
-  private lastHands: HandData[] = [];
+  // Context tracking
   private lastPointingPosition: { x: number; y: number } | null = null;
   private selectedObjectId: string | null = null;
+  private lastMentionedObjects: string[] = [];
+  private lastAction: string = '';
 
   constructor(physics: PhysicsEngine, uiManager: UIManager) {
     this.physics = physics;
@@ -62,7 +46,7 @@ export class AIAssistant {
 
   initialize(apiKey: string): boolean {
     if (!apiKey || apiKey.trim() === '') {
-      console.log('No API key provided - AI features will be limited');
+      console.log('No API key provided');
       return false;
     }
 
@@ -76,7 +60,7 @@ export class AIAssistant {
           'X-Title': 'FistFirst Learn'
         }
       });
-      console.log('AI Assistant initialized with OpenRouter (GLM 4.5 AIR)');
+      console.log('✓ AI initialized with GLM 4.5');
       return true;
     } catch (error) {
       console.error('Failed to initialize AI:', error);
@@ -88,16 +72,10 @@ export class AIAssistant {
     this.onMessage = callback;
   }
 
-  // Update hand data for pointing awareness
   updateHands(hands: HandData[]): void {
-    this.lastHands = hands;
-    
-    // Check if user is pointing
     for (const hand of hands) {
       if (hand.isPointing && hand.pointingAt) {
         this.lastPointingPosition = hand.pointingAt;
-        
-        // Check if pointing at an object
         const obj = this.physics.getObjectAtPosition(hand.pointingAt.x, hand.pointingAt.y, 60);
         if (obj) {
           this.selectedObjectId = obj.id;
@@ -106,38 +84,58 @@ export class AIAssistant {
     }
   }
 
-  // Get current scene context for AI
-  private getSceneContext(): string {
+  private getDetailedSceneContext(): string {
     const info = this.physics.getObjectsInfo();
-    const bounds = this.physics.getPlayingFieldBounds();
     const stats = this.physics.getStats();
+    const bounds = this.physics.getPlayingFieldBounds();
     
-    let context = `CURRENT SCENE STATE:\n`;
-    context += `- Total objects: ${info.total}\n`;
+    let context = `=== CURRENT SCENE STATE ===\n`;
+    context += `Total objects: ${info.total}\n`;
     
     if (info.total > 0) {
-      context += `- Objects by type: ${JSON.stringify(info.byType)}\n`;
-      context += `- Objects by color: ${JSON.stringify(info.byColor)}\n`;
-      context += `- Object details: ${JSON.stringify(info.objects.slice(0, 10))}\n`;
+      context += `\nObjects by type:\n`;
+      for (const [type, count] of Object.entries(info.byType)) {
+        context += `  - ${type}: ${count}\n`;
+      }
+      
+      context += `\nObjects by color:\n`;
+      for (const [color, count] of Object.entries(info.byColor)) {
+        context += `  - ${color}: ${count}\n`;
+      }
+      
+      context += `\nDetailed object list:\n`;
+      for (const obj of info.objects) {
+        context += `  [${obj.id}] ${obj.type} (${obj.color}) at (${obj.x}, ${obj.y}) - mass: ${obj.mass}, bounce: ${obj.bounciness}, friction: ${obj.friction}${obj.isStatic ? ' [STATIC]' : ''}\n`;
+      }
     }
     
-    context += `- Gravity: (${stats.gravity.x}, ${stats.gravity.y})\n`;
-    context += `- Boundaries enabled: ${stats.boundariesEnabled}\n`;
-    context += `- Hand collision: ${stats.handsCollidable}\n`;
+    context += `\nPhysics settings:\n`;
+    context += `  - Gravity: (${stats.gravity.x.toFixed(2)}, ${stats.gravity.y.toFixed(2)})\n`;
+    context += `  - Boundaries: ${stats.boundariesEnabled ? 'ON' : 'OFF'}\n`;
+    context += `  - Hand collision: ${stats.handsCollidable ? 'ON' : 'OFF'}\n`;
     
     if (bounds) {
-      context += `- Playing field: ${Math.round(bounds.width)}x${Math.round(bounds.height)} at (${Math.round(bounds.x)}, ${Math.round(bounds.y)})\n`;
+      context += `  - Play area: ${Math.round(bounds.width)}x${Math.round(bounds.height)}\n`;
     }
     
-    // Pointing context
-    if (this.lastPointingPosition) {
-      context += `- User pointing at: (${Math.round(this.lastPointingPosition.x)}, ${Math.round(this.lastPointingPosition.y)})\n`;
-    }
+    // User context
     if (this.selectedObjectId) {
       const obj = this.physics.getObjectById(this.selectedObjectId);
       if (obj) {
-        context += `- Selected object: ${obj.id} (${obj.type}, ${this.getColorName(obj.color)})\n`;
+        context += `\nUser is pointing at: [${obj.id}] ${obj.type} (${this.getColorName(obj.color)})\n`;
       }
+    }
+    
+    if (this.lastPointingPosition) {
+      context += `Pointing position: (${Math.round(this.lastPointingPosition.x)}, ${Math.round(this.lastPointingPosition.y)})\n`;
+    }
+    
+    if (this.lastMentionedObjects.length > 0) {
+      context += `Recently mentioned objects: ${this.lastMentionedObjects.join(', ')}\n`;
+    }
+    
+    if (this.lastAction) {
+      context += `Last action: ${this.lastAction}\n`;
     }
     
     return context;
@@ -150,693 +148,795 @@ export class AIAssistant {
     return hex;
   }
 
-  private buildSystemPrompt(): string {
-    return `You are an advanced AI physics developer assistant for FistFirst Learn, an AR physics sandbox. You can create, modify, and analyze physics simulations using hand gestures.
+  private buildIntelligentPrompt(): string {
+    return `You are an intelligent AI assistant for FistFirst Learn, an AR physics sandbox. You must THINK about what the user actually wants before acting.
 
-YOUR CAPABILITIES:
-1. Create ANY shape: balls, rectangles, triangles, hexagons, stars, pentagons, custom polygons
-2. Query the scene: count objects, identify colors, check positions
-3. Modify objects: change color, size, position, velocity, make static/dynamic
-4. Control physics: gravity, bounciness, friction, boundaries
-5. Create UI elements: sliders, counters at specific positions
-6. Understand pointing gestures: user can point at objects or positions
+## CRITICAL RULES FOR UNDERSTANDING USER INTENT:
 
-RESPONSE FORMAT:
-When executing actions, respond with JSON action blocks followed by a natural response:
+1. **MODIFICATION vs CREATION**: 
+   - "Make it bigger" = MODIFY existing object, NOT create new
+   - "Make the circle bigger" = Find THE circle and scale it up
+   - "Change it to red" = Modify existing object's color
+   - "Create a circle" = Actually CREATE a new object
 
-\`\`\`action
-{"actions": [
-  {"fn": "functionName", "args": {...}},
-  {"fn": "anotherFunction", "args": {...}}
-]}
+2. **REFERENCES** - When user says:
+   - "it", "that", "this" = The object they're pointing at OR the last mentioned/created object
+   - "the circle", "the ball" = Find that specific object in the scene
+   - "all balls", "every circle" = ALL objects of that type
+
+3. **CONTEXT MATTERS**:
+   - If there's only 1 circle and user says "make the circle bigger" = scale THAT circle
+   - If user just created something and says "make it red" = modify the JUST CREATED object
+   - If user points at something and says "delete it" = delete the POINTED object
+
+## RESPONSE FORMAT:
+
+You MUST respond with a JSON block containing your REASONING and ACTIONS:
+
+\`\`\`json
+{
+  "thinking": "My analysis of what the user wants...",
+  "intent": "modify" | "create" | "query" | "physics" | "delete" | "conversation",
+  "targetObjects": ["object_ids to act on"] | "all" | "new",
+  "actions": [
+    {"action": "actionName", "params": {...}}
+  ],
+  "response": "What to say to the user"
+}
 \`\`\`
 
-Your natural response here.
+## AVAILABLE ACTIONS:
 
-AVAILABLE FUNCTIONS:
-- createBall: {x?, y?, radius?, color?, bounciness?} - x,y are 0-100 percentages
+### Object Creation (only when user wants NEW objects):
+- createBall: {x?, y?, radius?, color?}
 - createRectangle: {x?, y?, width?, height?, color?}
 - createTriangle: {x?, y?, size?, color?}
 - createHexagon: {x?, y?, size?, color?}
-- createPolygon: {x?, y?, sides?, size?, color?} - any regular polygon
-- createStar: {x?, y?, points?, outerRadius?, innerRadius?, color?}
-- createMultiple: {count, shape, color?, size?, pattern?} - pattern: "random", "grid", "circle", "line"
-- setGravity: {x?, y?, strength?, direction?}
-- setBounciness: {value} or {objectId, value}
+- createPolygon: {x?, y?, sides?, size?, color?}
+- createStar: {x?, y?, points?, size?, color?}
+- createMultiple: {count, shape, color?, pattern?}
+
+### Object Modification (when user refers to EXISTING objects):
+- scaleObject: {objectId, scale} - make bigger (1.5) or smaller (0.7)
 - setColor: {objectId, color}
 - setPosition: {objectId, x, y}
 - setVelocity: {objectId, vx, vy}
-- scaleObject: {objectId, scale}
 - makeStatic: {objectId, isStatic}
 - removeObject: {objectId}
-- clearAll: {}
+
+### Physics Properties (CRITICAL - use these for mass/weight/material changes):
+- setMass: {objectId, mass} - heavier objects (5-10), lighter objects (0.1-0.5), normal (1)
+- setDensity: {objectId, density} - affects mass based on size (0.0001=foam, 0.001=normal, 0.01=heavy)
+- setFriction: {objectId, friction} - 0=slippery like ice, 1=grippy like rubber
+- setAirResistance: {objectId, airResistance} - 0=no drag, 0.1=floaty, 0.01=normal
+- setBounciness: {objectId, bounciness} - 0=no bounce, 1=super bouncy
+- setSpin: {objectId, angularVelocity} - make object spin (positive=clockwise)
+- setMaterial: {objectId, material} - preset materials: "metal", "wood", "rubber", "foam", "ice", "stone"
+- applyForce: {objectId, x, y} - push an object (use small values like 0.01)
+- applyImpulse: {objectId, x, y} - instant velocity change
+
+### Batch Physics Operations:
+- setMassForAll: {type?, color?, mass} - e.g., make all red balls heavier
+- setDensityForAll: {type?, color?, density}
+
+### Batch Operations:
+- scaleAll: {type?, color?, scale}
+- setColorAll: {type?, color, newColor}
+- removeAll: {type?, color?}
+
+### Physics:
+- setGravity: {x?, y?, direction?, strength?}
+- setBounciness: {value} or {objectId, value}
 - enableBoundaries: {enable}
-- enableHandCollision: {enable}
 - enableMagnetic: {enable}
 - recallBalls: {}
-- createSlider: {x?, y?, label, controls}
-- createCounter: {x?, y?, label, tracks}
-- queryScene: {} - returns scene info (use when asked about objects)
-- getObjectAt: {x, y} - get object at position (for pointing)
-- createAtPointing: {shape, color?, size?} - create where user is pointing
 
-CONTEXT AWARENESS:
-- When user says "here", "there", "where I'm pointing" - use the pointing position
-- When user says "that", "this object", "the selected one" - use selectedObjectId
-- When asked "how many" or "count" - query the scene first
-- For "rainbow" - use multiple colors
-- For positions: percentages (0-100) or "center", "top", "bottom", "left", "right", "random"
+### Query (just return info):
+- queryScene: {}
 
-EXAMPLES:
-User: "Create 5 red triangles"
-\`\`\`action
-{"actions": [{"fn": "createMultiple", "args": {"count": 5, "shape": "triangle", "color": "red"}}]}
+## EXAMPLES:
+
+User: "Make the circle bigger"
+Scene: 1 circle exists with id "ball_1"
+\`\`\`json
+{
+  "thinking": "User said 'the circle' which refers to an existing circle. There is 1 circle (ball_1). They want to make it bigger, which means scaling it up.",
+  "intent": "modify",
+  "targetObjects": ["ball_1"],
+  "actions": [{"action": "scaleObject", "params": {"objectId": "ball_1", "scale": 1.5}}],
+  "response": "I made the circle bigger!"
+}
 \`\`\`
-Created 5 red triangles!
 
-User: "How many balls are on screen?"
-\`\`\`action
-{"actions": [{"fn": "queryScene", "args": {}}]}
+User: "Make it red"
+Context: User just created ball_2
+\`\`\`json
+{
+  "thinking": "User says 'it' referring to the last created object (ball_2). They want to change its color to red.",
+  "intent": "modify",
+  "targetObjects": ["ball_2"],
+  "actions": [{"action": "setColor", "params": {"objectId": "ball_2", "color": "red"}}],
+  "response": "Changed it to red!"
+}
 \`\`\`
-[After getting scene info] There are 3 balls - 2 blue and 1 red.
 
-User: "Put a slider here" (while pointing)
-\`\`\`action
-{"actions": [{"fn": "createSlider", "args": {"x": "pointing", "y": "pointing", "label": "Gravity", "controls": "gravity"}}]}
+User: "Create 5 balls"
+\`\`\`json
+{
+  "thinking": "User explicitly said 'create' - they want NEW objects, 5 balls.",
+  "intent": "create",
+  "targetObjects": "new",
+  "actions": [{"action": "createMultiple", "params": {"count": 5, "shape": "ball", "color": "random"}}],
+  "response": "Created 5 colorful balls!"
+}
 \`\`\`
-Added a gravity slider where you pointed!
 
-Be helpful, creative, and conversational. Keep responses brief but informative.`;
+User: "How many red objects?"
+\`\`\`json
+{
+  "thinking": "User is asking a question about the scene, not requesting an action.",
+  "intent": "query",
+  "targetObjects": [],
+  "actions": [{"action": "queryScene", "params": {}}],
+  "response": "There are X red objects on screen."
+}
+\`\`\`
+
+User: "Make the red ball heavier than the blue ball"
+Scene: red ball (ball_1) and blue ball (ball_2) exist
+\`\`\`json
+{
+  "thinking": "User wants to change the relative mass of two objects. I need to make ball_1 (red) heavier and ball_2 (blue) lighter. I'll set red to mass 5 and blue to mass 0.5, making red 10x heavier.",
+  "intent": "modify",
+  "targetObjects": ["ball_1", "ball_2"],
+  "actions": [
+    {"action": "setMass", "params": {"objectId": "ball_1", "mass": 5}},
+    {"action": "setMass", "params": {"objectId": "ball_2", "mass": 0.5}}
+  ],
+  "response": "Done! The red ball is now 10 times heavier than the blue ball. Try colliding them to see the difference!"
+}
+\`\`\`
+
+User: "Make it bouncy like rubber"
+Context: User pointing at ball_3
+\`\`\`json
+{
+  "thinking": "User says 'it' referring to pointed object (ball_3). They want rubber-like properties which means high bounciness and friction. I'll use the rubber material preset.",
+  "intent": "modify",
+  "targetObjects": ["ball_3"],
+  "actions": [{"action": "setMaterial", "params": {"objectId": "ball_3", "material": "rubber"}}],
+  "response": "Made it bouncy like rubber! It will bounce high and grip surfaces."
+}
+\`\`\`
+
+ALWAYS think through the user's actual intent. Never assume "create" when they mean "modify".`;
   }
 
   async processCommand(userMessage: string): Promise<string> {
     if (this.isProcessing) {
-      return 'Please wait, still processing...';
+      return 'Please wait...';
     }
 
     this.isProcessing = true;
     this.onMessage?.(userMessage, true);
 
     try {
-      // Get current scene context
-      const sceneContext = this.getSceneContext();
-      
-      // If no OpenAI, use enhanced fallback
       if (!this.openai) {
-        const response = this.enhancedFallbackParser(userMessage);
+        const response = this.smartFallback(userMessage);
         this.onMessage?.(response, false);
         return response;
       }
 
-      // Build messages with scene context
-      const systemPrompt = this.buildSystemPrompt();
-      const contextMessage = `${sceneContext}\n\nUser message: ${userMessage}`;
+      // Build full context
+      const sceneContext = this.getDetailedSceneContext();
+      const systemPrompt = this.buildIntelligentPrompt();
       
-      this.conversationHistory.push({ role: 'user', content: contextMessage });
+      // Add conversation history for context
+      const recentHistory = this.conversationHistory.slice(-6).map(h => 
+        `${h.role === 'user' ? 'User' : 'AI'}: ${h.content}`
+      ).join('\n');
+      
+      const fullUserMessage = `${sceneContext}\n\nRecent conversation:\n${recentHistory}\n\nCurrent user message: "${userMessage}"`;
+      
+      console.log('Sending to AI with context:', fullUserMessage.substring(0, 500) + '...');
 
       const response = await this.openai.chat.completions.create({
         model: OPENROUTER_MODEL,
         messages: [
           { role: 'system', content: systemPrompt },
-          ...this.conversationHistory.slice(-12)
+          { role: 'user', content: fullUserMessage }
         ],
-        max_tokens: 800,
-        temperature: 0.7
+        max_tokens: 1000,
+        temperature: 0.3 // Lower temperature for more consistent reasoning
       });
 
-      const message = response.choices[0].message;
-      let responseText = message.content || '';
+      const aiResponse = response.choices[0].message.content || '';
+      console.log('AI response:', aiResponse);
       
-      // Parse and execute action blocks
-      const actionMatch = responseText.match(/```action\s*([\s\S]*?)```/);
+      // Parse the JSON response
+      const jsonMatch = aiResponse.match(/```json\s*([\s\S]*?)```/);
       
-      if (actionMatch) {
+      if (jsonMatch) {
         try {
-          const actionJson = JSON.parse(actionMatch[1].trim());
-          const actions = actionJson.actions || [actionJson];
+          const parsed = JSON.parse(jsonMatch[1].trim());
+          console.log('AI thinking:', parsed.thinking);
+          console.log('AI intent:', parsed.intent);
+          console.log('AI target:', parsed.targetObjects);
           
-          for (const action of actions) {
-            const result = this.executeAction(action.fn || action.function, action.args || action.params || {});
-            console.log(`AI executed: ${action.fn}`, result);
-            
-            // If query, inject result into response
-            if (action.fn === 'queryScene' || action.fn === 'getObjectAt') {
-              responseText = responseText.replace(
-                /```action[\s\S]*?```\s*/,
-                ''
-              );
-              // Let AI know the result for follow-up
-              if (result.data) {
-                responseText = this.enhanceResponseWithData(userMessage, result.data, responseText);
+          // Execute actions
+          if (parsed.actions && Array.isArray(parsed.actions)) {
+            for (const actionItem of parsed.actions) {
+              const result = this.executeAction(actionItem.action, actionItem.params || {});
+              console.log(`Executed ${actionItem.action}:`, result);
+              
+              // Track for context
+              if (result.data?.id) {
+                this.lastMentionedObjects = [result.data.id];
               }
             }
           }
           
-          // Clean action block from response
-          responseText = responseText.replace(/```action[\s\S]*?```\s*/g, '').trim();
+          this.lastAction = parsed.intent;
           
-          if (!responseText) {
-            responseText = 'Done!';
-          }
+          // Update conversation history
+          this.conversationHistory.push({ role: 'user', content: userMessage });
+          this.conversationHistory.push({ role: 'assistant', content: parsed.response });
+          
+          this.onMessage?.(parsed.response, false);
+          return parsed.response;
+          
         } catch (parseError) {
-          console.error('Failed to parse action:', parseError);
-          // Try fallback
-          const fallback = this.enhancedFallbackParser(userMessage);
-          if (!fallback.includes('not sure')) {
-            responseText = fallback;
-          }
-        }
-      } else {
-        // No action block - maybe it's a question or conversation
-        // Try fallback for action-like messages
-        if (this.looksLikeAction(userMessage)) {
-          const fallback = this.enhancedFallbackParser(userMessage);
-          if (!fallback.includes('not sure')) {
-            responseText = fallback;
+          console.error('Failed to parse AI JSON:', parseError);
+          // Try to extract just the response text
+          const responseMatch = aiResponse.match(/"response"\s*:\s*"([^"]+)"/);
+          if (responseMatch) {
+            this.onMessage?.(responseMatch[1], false);
+            return responseMatch[1];
           }
         }
       }
-
-      this.conversationHistory.push({ role: 'assistant', content: responseText });
-      this.onMessage?.(responseText, false);
       
-      return responseText;
+      // If no JSON, use the raw response
+      const cleanResponse = aiResponse.replace(/```[\s\S]*?```/g, '').trim() || 'Done!';
+      this.onMessage?.(cleanResponse, false);
+      return cleanResponse;
+      
     } catch (error) {
-      console.error('AI processing error:', error);
-      const fallbackResponse = this.enhancedFallbackParser(userMessage);
-      this.onMessage?.(fallbackResponse, false);
-      return fallbackResponse;
+      console.error('AI error:', error);
+      const fallback = this.smartFallback(userMessage);
+      this.onMessage?.(fallback, false);
+      return fallback;
     } finally {
       this.isProcessing = false;
     }
   }
 
-  private looksLikeAction(text: string): boolean {
-    const actionWords = ['create', 'make', 'add', 'put', 'spawn', 'generate', 'set', 'change', 
-                         'remove', 'delete', 'clear', 'enable', 'disable', 'turn', 'gravity',
-                         'bounce', 'ball', 'triangle', 'square', 'hexagon', 'star', 'polygon'];
-    const lower = text.toLowerCase();
-    return actionWords.some(word => lower.includes(word));
-  }
-
-  private enhanceResponseWithData(question: string, data: any, currentResponse: string): string {
-    const lower = question.toLowerCase();
-    
-    if (lower.includes('how many') || lower.includes('count')) {
-      if (data.total !== undefined) {
-        const colorMentioned = this.extractColor(lower);
-        const shapeMentioned = this.extractShape(lower);
-        
-        if (colorMentioned && data.byColor?.[colorMentioned]) {
-          return `There ${data.byColor[colorMentioned] === 1 ? 'is' : 'are'} ${data.byColor[colorMentioned]} ${colorMentioned} object${data.byColor[colorMentioned] === 1 ? '' : 's'} on screen.`;
-        }
-        if (shapeMentioned && data.byType?.[shapeMentioned]) {
-          return `There ${data.byType[shapeMentioned] === 1 ? 'is' : 'are'} ${data.byType[shapeMentioned]} ${shapeMentioned}${data.byType[shapeMentioned] === 1 ? '' : 's'} on screen.`;
-        }
-        return `There ${data.total === 1 ? 'is' : 'are'} ${data.total} object${data.total === 1 ? '' : 's'} on screen.`;
-      }
-    }
-    
-    return currentResponse || 'Let me check that for you.';
-  }
-
-  private executeAction(name: string, args: any): { success: boolean; message: string; data?: any } {
+  private executeAction(actionName: string, params: any): { success: boolean; message: string; data?: any } {
     const renderer = (this.physics as any).renderer;
     const width = renderer?.width || window.innerWidth;
     const height = renderer?.height || window.innerHeight;
     
-    // Handle position arguments
-    const getX = (val: any): number => {
-      if (val === 'pointing' && this.lastPointingPosition) return this.lastPointingPosition.x;
-      if (val === 'center') return width / 2;
-      if (val === 'left') return width * 0.2;
-      if (val === 'right') return width * 0.8;
-      if (val === 'random') return Math.random() * width * 0.6 + width * 0.2;
-      if (typeof val === 'number') return (val / 100) * width;
-      return width / 2;
-    };
-    
-    const getY = (val: any): number => {
-      if (val === 'pointing' && this.lastPointingPosition) return this.lastPointingPosition.y;
-      if (val === 'center') return height / 2;
-      if (val === 'top') return height * 0.2;
-      if (val === 'bottom') return height * 0.8;
-      if (val === 'random') return Math.random() * height * 0.5 + height * 0.2;
-      if (typeof val === 'number') return (val / 100) * height;
-      return height / 3;
+    const getPos = (val: any, isX: boolean): number => {
+      if (val === 'pointing' && this.lastPointingPosition) {
+        return isX ? this.lastPointingPosition.x : this.lastPointingPosition.y;
+      }
+      if (val === 'center') return isX ? width / 2 : height / 2;
+      if (val === 'random') return isX ? Math.random() * width * 0.6 + width * 0.2 : Math.random() * height * 0.5 + height * 0.2;
+      if (typeof val === 'number') {
+        // If it looks like a percentage (0-100), convert it
+        if (val <= 100) return (val / 100) * (isX ? width : height);
+        return val; // Otherwise use as absolute position
+      }
+      return isX ? width / 2 : height / 3;
     };
 
-    const getColor = (colorName: string | undefined): string => {
-      if (!colorName) return COLORS.blue;
-      if (colorName === 'random') {
+    const getColor = (c: string | undefined): string => {
+      if (!c) return COLORS.blue;
+      if (c === 'random') {
         const keys = Object.keys(COLORS);
         return COLORS[keys[Math.floor(Math.random() * keys.length)]];
       }
-      return COLORS[colorName.toLowerCase()] || colorName;
+      return COLORS[c.toLowerCase()] || c;
     };
 
     try {
-      switch (name) {
+      switch (actionName) {
+        // === CREATION ===
         case 'createBall': {
-          const x = getX(args.x ?? 'random');
-          const y = getY(args.y ?? 'random');
-          const radius = args.radius ?? 30;
-          const color = getColor(args.color);
-          this.physics.createBall(x, y, radius, color, { restitution: args.bounciness ?? 0.8 });
-          return { success: true, message: `Created a ${args.color || 'blue'} ball` };
+          const x = getPos(params.x, true);
+          const y = getPos(params.y, false);
+          const obj = this.physics.createBall(x, y, params.radius ?? 30, getColor(params.color));
+          this.lastMentionedObjects = [obj.id];
+          return { success: true, message: 'Created ball', data: { id: obj.id } };
         }
 
         case 'createRectangle': {
-          const x = getX(args.x ?? 'random');
-          const y = getY(args.y ?? 'random');
-          this.physics.createRectangle(x, y, args.width ?? 60, args.height ?? 60, getColor(args.color));
-          return { success: true, message: 'Created a rectangle' };
+          const x = getPos(params.x, true);
+          const y = getPos(params.y, false);
+          const obj = this.physics.createRectangle(x, y, params.width ?? 60, params.height ?? 60, getColor(params.color));
+          this.lastMentionedObjects = [obj.id];
+          return { success: true, message: 'Created rectangle', data: { id: obj.id } };
         }
 
         case 'createTriangle': {
-          const x = getX(args.x ?? 'random');
-          const y = getY(args.y ?? 'random');
-          this.physics.createPolygon(x, y, 3, args.size ?? 40, getColor(args.color));
-          return { success: true, message: 'Created a triangle' };
+          const x = getPos(params.x, true);
+          const y = getPos(params.y, false);
+          const obj = this.physics.createPolygon(x, y, 3, params.size ?? 40, getColor(params.color));
+          this.lastMentionedObjects = [obj.id];
+          return { success: true, message: 'Created triangle', data: { id: obj.id } };
         }
 
         case 'createHexagon': {
-          const x = getX(args.x ?? 'random');
-          const y = getY(args.y ?? 'random');
-          this.physics.createPolygon(x, y, 6, args.size ?? 40, getColor(args.color));
-          return { success: true, message: 'Created a hexagon' };
+          const x = getPos(params.x, true);
+          const y = getPos(params.y, false);
+          const obj = this.physics.createPolygon(x, y, 6, params.size ?? 40, getColor(params.color));
+          this.lastMentionedObjects = [obj.id];
+          return { success: true, message: 'Created hexagon', data: { id: obj.id } };
         }
 
         case 'createPolygon': {
-          const x = getX(args.x ?? 'random');
-          const y = getY(args.y ?? 'random');
-          const sides = args.sides ?? 5;
-          this.physics.createPolygon(x, y, sides, args.size ?? 40, getColor(args.color));
-          return { success: true, message: `Created a ${sides}-sided polygon` };
+          const x = getPos(params.x, true);
+          const y = getPos(params.y, false);
+          const obj = this.physics.createPolygon(x, y, params.sides ?? 5, params.size ?? 40, getColor(params.color));
+          this.lastMentionedObjects = [obj.id];
+          return { success: true, message: 'Created polygon', data: { id: obj.id } };
         }
 
         case 'createStar': {
-          const x = getX(args.x ?? 'random');
-          const y = getY(args.y ?? 'random');
-          this.physics.createStar(x, y, args.points ?? 5, args.outerRadius ?? 50, args.innerRadius ?? 25, getColor(args.color));
-          return { success: true, message: `Created a ${args.points ?? 5}-point star` };
+          const x = getPos(params.x, true);
+          const y = getPos(params.y, false);
+          const size = params.size ?? 50;
+          const obj = this.physics.createStar(x, y, params.points ?? 5, size, size / 2, getColor(params.color));
+          this.lastMentionedObjects = [obj.id];
+          return { success: true, message: 'Created star', data: { id: obj.id } };
         }
 
         case 'createMultiple': {
-          const count = Math.min(args.count ?? 5, 30);
-          const shape = args.shape?.toLowerCase() || 'ball';
+          const count = Math.min(params.count ?? 5, 30);
           const colors = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'];
+          const createdIds: string[] = [];
           
           for (let i = 0; i < count; i++) {
-            let x: number, y: number;
+            const x = Math.random() * width * 0.6 + width * 0.2;
+            const y = Math.random() * height * 0.4 + height * 0.2;
+            const color = params.color === 'rainbow' || params.color === 'random' 
+              ? colors[i % colors.length] 
+              : (params.color || colors[Math.floor(Math.random() * colors.length)]);
+            const size = params.size ?? 30;
             
-            // Handle patterns
-            if (args.pattern === 'grid') {
-              const cols = Math.ceil(Math.sqrt(count));
-              x = (((i % cols) + 0.5) / cols) * width * 0.6 + width * 0.2;
-              y = ((Math.floor(i / cols) + 0.5) / Math.ceil(count / cols)) * height * 0.4 + height * 0.2;
-            } else if (args.pattern === 'circle') {
-              const angle = (i / count) * Math.PI * 2;
-              const radius = Math.min(width, height) * 0.25;
-              x = width / 2 + Math.cos(angle) * radius;
-              y = height / 2 + Math.sin(angle) * radius;
-            } else if (args.pattern === 'line') {
-              x = ((i + 0.5) / count) * width * 0.8 + width * 0.1;
-              y = height / 3;
-            } else {
-              // Random
-              x = Math.random() * width * 0.6 + width * 0.2;
-              y = Math.random() * height * 0.4 + height * 0.2;
-            }
-            
-            const color = args.color === 'rainbow' || args.color === 'random' 
-              ? colors[i % colors.length]
-              : (args.color || 'random');
-            const colorHex = getColor(color === 'random' ? colors[Math.floor(Math.random() * colors.length)] : color);
-            const size = args.size === 'random' ? Math.random() * 30 + 20 : (args.size ?? 30);
+            let obj: PhysicsObject;
+            const shape = (params.shape || 'ball').toLowerCase();
             
             if (shape === 'ball' || shape === 'circle') {
-              this.physics.createBall(x, y, size, colorHex);
-            } else if (shape === 'rectangle' || shape === 'square' || shape === 'box') {
-              this.physics.createRectangle(x, y, size * 1.5, size * 1.5, colorHex);
+              obj = this.physics.createBall(x, y, size, getColor(color));
             } else if (shape === 'triangle') {
-              this.physics.createPolygon(x, y, 3, size, colorHex);
+              obj = this.physics.createPolygon(x, y, 3, size, getColor(color));
             } else if (shape === 'hexagon') {
-              this.physics.createPolygon(x, y, 6, size, colorHex);
-            } else if (shape === 'pentagon') {
-              this.physics.createPolygon(x, y, 5, size, colorHex);
+              obj = this.physics.createPolygon(x, y, 6, size, getColor(color));
             } else if (shape === 'star') {
-              this.physics.createStar(x, y, 5, size, size / 2, colorHex);
+              obj = this.physics.createStar(x, y, 5, size, size/2, getColor(color))!;
             } else {
-              this.physics.createBall(x, y, size, colorHex);
+              obj = this.physics.createRectangle(x, y, size * 1.5, size * 1.5, getColor(color));
             }
+            createdIds.push(obj.id);
           }
-          return { success: true, message: `Created ${count} ${args.color || ''} ${shape}s` };
-        }
-
-        case 'createAtPointing': {
-          if (!this.lastPointingPosition) {
-            return { success: false, message: 'Point at where you want to create the object' };
-          }
-          const shape = args.shape?.toLowerCase() || 'ball';
-          const color = getColor(args.color);
-          const size = args.size ?? 35;
-          const x = this.lastPointingPosition.x;
-          const y = this.lastPointingPosition.y;
           
-          if (shape === 'ball' || shape === 'circle') {
-            this.physics.createBall(x, y, size, color);
-          } else if (shape === 'triangle') {
-            this.physics.createPolygon(x, y, 3, size, color);
-          } else if (shape === 'hexagon') {
-            this.physics.createPolygon(x, y, 6, size, color);
-          } else if (shape === 'star') {
-            this.physics.createStar(x, y, 5, size, size / 2, color);
-          } else {
-            this.physics.createRectangle(x, y, size * 1.5, size * 1.5, color);
-          }
-          return { success: true, message: `Created ${shape} where you pointed!` };
+          this.lastMentionedObjects = createdIds;
+          return { success: true, message: `Created ${count} ${params.shape || 'ball'}s` };
         }
 
+        // === MODIFICATION ===
+        case 'scaleObject': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.scaleObject(objId, params.scale ?? 1.5);
+            return { success: true, message: `Scaled ${objId}` };
+          }
+          return { success: false, message: 'No object to scale' };
+        }
+
+        case 'setColor': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.setObjectColor(objId, getColor(params.color));
+            return { success: true, message: `Changed color of ${objId}` };
+          }
+          return { success: false, message: 'No object to modify' };
+        }
+
+        case 'setPosition': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.setObjectPosition(objId, getPos(params.x, true), getPos(params.y, false));
+            return { success: true, message: 'Moved object' };
+          }
+          return { success: false, message: 'No object to move' };
+        }
+
+        case 'setVelocity': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.setObjectVelocity(objId, params.vx ?? 0, params.vy ?? 0);
+            return { success: true, message: 'Set velocity' };
+          }
+          return { success: false, message: 'No object to modify' };
+        }
+
+        case 'makeStatic': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.setObjectStatic(objId, params.isStatic !== false);
+            return { success: true, message: params.isStatic ? 'Made static' : 'Made dynamic' };
+          }
+          return { success: false, message: 'No object to modify' };
+        }
+
+        case 'removeObject': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.removeObject(objId);
+            this.lastMentionedObjects = [];
+            return { success: true, message: 'Removed object' };
+          }
+          return { success: false, message: 'No object to remove' };
+        }
+
+        // === BATCH OPERATIONS ===
+        case 'scaleAll': {
+          const objects = this.physics.getObjects();
+          let count = 0;
+          for (const obj of objects) {
+            if (params.type && obj.type !== params.type) continue;
+            if (params.color && this.getColorName(obj.color) !== params.color) continue;
+            this.physics.scaleObject(obj.id, params.scale ?? 1.5);
+            count++;
+          }
+          return { success: true, message: `Scaled ${count} objects` };
+        }
+
+        case 'setColorAll': {
+          const objects = this.physics.getObjects();
+          let count = 0;
+          for (const obj of objects) {
+            if (params.type && obj.type !== params.type) continue;
+            if (params.color && this.getColorName(obj.color) !== params.color) continue;
+            this.physics.setObjectColor(obj.id, getColor(params.newColor));
+            count++;
+          }
+          return { success: true, message: `Changed color of ${count} objects` };
+        }
+
+        case 'removeAll': {
+          if (!params.type && !params.color) {
+            this.physics.clearAllObjects();
+            return { success: true, message: 'Cleared all objects' };
+          }
+          const objects = this.physics.getObjects();
+          let count = 0;
+          for (const obj of objects) {
+            if (params.type && obj.type !== params.type) continue;
+            if (params.color && this.getColorName(obj.color) !== params.color) continue;
+            this.physics.removeObject(obj.id);
+            count++;
+          }
+          return { success: true, message: `Removed ${count} objects` };
+        }
+
+        // === PHYSICS ===
         case 'setGravity': {
-          let gx = 0, gy = 0;
-          if (args.direction) {
-            const strength = args.strength ?? 1;
-            switch (args.direction.toLowerCase()) {
-              case 'down': gy = strength; break;
-              case 'up': gy = -strength; break;
-              case 'left': gx = -strength; break;
-              case 'right': gx = strength; break;
+          let gx = params.x ?? 0;
+          let gy = params.y ?? 0;
+          if (params.direction) {
+            const s = params.strength ?? 1;
+            switch (params.direction) {
+              case 'down': gy = s; break;
+              case 'up': gy = -s; break;
+              case 'left': gx = -s; break;
+              case 'right': gx = s; break;
             }
-          } else {
-            gx = args.x ?? 0;
-            gy = args.y ?? (args.strength ?? 0.5);
+          } else if (params.strength !== undefined) {
+            gy = params.strength;
           }
           this.physics.setGravity(gx, gy);
           return { success: true, message: `Gravity set to (${gx}, ${gy})` };
         }
 
         case 'setBounciness': {
-          if (args.objectId) {
-            this.physics.setObjectBounciness(args.objectId, args.value);
+          if (params.objectId) {
+            this.physics.setObjectBounciness(params.objectId, params.value ?? 0.8);
           } else {
-            this.physics.setAllBounciness(args.value);
+            this.physics.setAllBounciness(params.value ?? 0.8);
           }
-          return { success: true, message: `Bounciness set to ${args.value}` };
-        }
-
-        case 'setColor': {
-          const objId = args.objectId || this.selectedObjectId;
-          if (objId) {
-            this.physics.setObjectColor(objId, getColor(args.color));
-            return { success: true, message: `Changed color to ${args.color}` };
-          }
-          return { success: false, message: 'No object selected' };
-        }
-
-        case 'setPosition': {
-          const objId = args.objectId || this.selectedObjectId;
-          if (objId) {
-            this.physics.setObjectPosition(objId, getX(args.x), getY(args.y));
-            return { success: true, message: 'Moved object' };
-          }
-          return { success: false, message: 'No object selected' };
-        }
-
-        case 'setVelocity': {
-          const objId = args.objectId || this.selectedObjectId;
-          if (objId) {
-            this.physics.setObjectVelocity(objId, args.vx ?? 0, args.vy ?? 0);
-            return { success: true, message: 'Set velocity' };
-          }
-          return { success: false, message: 'No object selected' };
-        }
-
-        case 'scaleObject': {
-          const objId = args.objectId || this.selectedObjectId;
-          if (objId) {
-            this.physics.scaleObject(objId, args.scale ?? 1.5);
-            return { success: true, message: 'Scaled object' };
-          }
-          return { success: false, message: 'No object selected' };
-        }
-
-        case 'makeStatic': {
-          const objId = args.objectId || this.selectedObjectId;
-          if (objId) {
-            this.physics.setObjectStatic(objId, args.isStatic !== false);
-            return { success: true, message: args.isStatic !== false ? 'Object is now static' : 'Object can move now' };
-          }
-          return { success: false, message: 'No object selected' };
-        }
-
-        case 'removeObject': {
-          const objId = args.objectId || this.selectedObjectId;
-          if (objId) {
-            this.physics.removeObject(objId);
-            this.selectedObjectId = null;
-            return { success: true, message: 'Removed object' };
-          }
-          return { success: false, message: 'No object selected' };
-        }
-
-        case 'clearAll': {
-          this.physics.clearAllObjects();
-          return { success: true, message: 'Cleared all objects' };
+          return { success: true, message: `Bounciness set to ${params.value}` };
         }
 
         case 'enableBoundaries': {
-          if (args.enable !== false) {
+          if (params.enable !== false) {
             this.physics.enableBoundaries();
           } else {
             this.physics.disableBoundaries();
           }
-          return { success: true, message: args.enable !== false ? 'Boundaries enabled' : 'Boundaries disabled' };
-        }
-
-        case 'enableHandCollision': {
-          if (args.enable !== false) {
-            this.physics.enableHandCollision();
-          } else {
-            this.physics.disableHandCollision();
-          }
-          return { success: true, message: args.enable !== false ? 'Hand collision enabled' : 'Hand collision disabled' };
+          return { success: true, message: params.enable ? 'Boundaries on' : 'Boundaries off' };
         }
 
         case 'enableMagnetic': {
-          this.physics.setMagneticAttraction(args.enable !== false);
-          return { success: true, message: args.enable !== false ? 'Magnetic attraction on!' : 'Magnetic attraction off' };
+          this.physics.setMagneticAttraction(params.enable !== false);
+          return { success: true, message: params.enable ? 'Magnetic on' : 'Magnetic off' };
         }
 
         case 'recallBalls': {
           this.physics.recallBalls();
-          return { success: true, message: 'Recalling objects to center' };
-        }
-
-        case 'createSlider': {
-          const x = args.x === 'pointing' && this.lastPointingPosition 
-            ? this.lastPointingPosition.x 
-            : getX(args.x ?? 10);
-          const y = args.y === 'pointing' && this.lastPointingPosition
-            ? this.lastPointingPosition.y
-            : getY(args.y ?? 10);
-          this.uiManager.createSlider(x, y, args.label || 'Control', args.controls || 'gravity', args.min ?? 0, args.max ?? 2);
-          return { success: true, message: `Created ${args.label || 'control'} slider` };
-        }
-
-        case 'createCounter': {
-          const x = getX(args.x ?? 80);
-          const y = getY(args.y ?? 5);
-          this.uiManager.createCounter(x, y, args.label || 'Counter', args.tracks || 'objectCount');
-          return { success: true, message: `Created ${args.label || ''} counter` };
+          return { success: true, message: 'Recalling objects' };
         }
 
         case 'queryScene': {
           return { success: true, message: 'Scene queried', data: this.physics.getObjectsInfo() };
         }
 
-        case 'getObjectAt': {
-          const x = args.x === 'pointing' && this.lastPointingPosition ? this.lastPointingPosition.x : getX(args.x);
-          const y = args.y === 'pointing' && this.lastPointingPosition ? this.lastPointingPosition.y : getY(args.y);
-          const obj = this.physics.getObjectAtPosition(x, y, 60);
-          if (obj) {
-            this.selectedObjectId = obj.id;
-            return { success: true, message: `Found ${obj.type}`, data: obj };
+        // === ADVANCED PHYSICS PROPERTIES ===
+        case 'setMass': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.setObjectMass(objId, params.mass ?? 1);
+            return { success: true, message: `Set mass of ${objId} to ${params.mass}` };
           }
-          return { success: false, message: 'No object at that position' };
+          return { success: false, message: 'No object to modify' };
+        }
+
+        case 'setDensity': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.setObjectDensity(objId, params.density ?? 0.001);
+            return { success: true, message: `Set density of ${objId}` };
+          }
+          return { success: false, message: 'No object to modify' };
+        }
+
+        case 'setFriction': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.setObjectFriction(objId, params.friction ?? 0.1);
+            return { success: true, message: `Set friction of ${objId}` };
+          }
+          return { success: false, message: 'No object to modify' };
+        }
+
+        case 'setAirResistance': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.setObjectAirResistance(objId, params.airResistance ?? 0.01);
+            return { success: true, message: `Set air resistance of ${objId}` };
+          }
+          return { success: false, message: 'No object to modify' };
+        }
+
+        case 'setSpin': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.setObjectSpin(objId, params.angularVelocity ?? 0.1);
+            return { success: true, message: `Set spin of ${objId}` };
+          }
+          return { success: false, message: 'No object to modify' };
+        }
+
+        case 'setMaterial': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            const material = params.material || 'rubber';
+            this.physics.setObjectMaterial(objId, material);
+            return { success: true, message: `Set ${objId} to ${material} material` };
+          }
+          return { success: false, message: 'No object to modify' };
+        }
+
+        case 'applyForce': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.applyForceToObject(objId, { x: params.x ?? 0, y: params.y ?? 0 });
+            return { success: true, message: `Applied force to ${objId}` };
+          }
+          return { success: false, message: 'No object to modify' };
+        }
+
+        case 'applyImpulse': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            this.physics.applyImpulseToObject(objId, { x: params.x ?? 0, y: params.y ?? 0 });
+            return { success: true, message: `Applied impulse to ${objId}` };
+          }
+          return { success: false, message: 'No object to modify' };
+        }
+
+        case 'setMassForAll': {
+          const count = this.physics.setMassForAll({
+            type: params.type,
+            color: params.color,
+            mass: params.mass ?? 1
+          });
+          return { success: true, message: `Set mass for ${count} objects` };
+        }
+
+        case 'setDensityForAll': {
+          const count = this.physics.setDensityForAll({
+            type: params.type,
+            color: params.color,
+            density: params.density ?? 0.001
+          });
+          return { success: true, message: `Set density for ${count} objects` };
         }
 
         default:
-          return { success: false, message: `Unknown action: ${name}` };
+          console.warn('Unknown action:', actionName);
+          return { success: false, message: `Unknown action: ${actionName}` };
       }
     } catch (error) {
-      console.error(`Error executing ${name}:`, error);
+      console.error(`Error in ${actionName}:`, error);
       return { success: false, message: `Error: ${error}` };
     }
   }
 
-  private enhancedFallbackParser(input: string): string {
+  // Smart fallback when AI fails or is unavailable
+  private smartFallback(input: string): string {
     const lower = input.toLowerCase();
-
-    // Scene queries
-    if (lower.includes('how many') || lower.includes('count')) {
-      const info = this.physics.getObjectsInfo();
-      const colorMentioned = this.extractColor(lower);
-      const shapeMentioned = this.extractShape(lower);
-      
-      if (colorMentioned && info.byColor[colorMentioned]) {
-        return `There ${info.byColor[colorMentioned] === 1 ? 'is' : 'are'} ${info.byColor[colorMentioned]} ${colorMentioned} object${info.byColor[colorMentioned] === 1 ? '' : 's'}.`;
-      }
-      if (shapeMentioned) {
-        const typeKey = shapeMentioned === 'ball' ? 'circle' : shapeMentioned;
-        if (info.byType[typeKey]) {
-          return `There ${info.byType[typeKey] === 1 ? 'is' : 'are'} ${info.byType[typeKey]} ${shapeMentioned}${info.byType[typeKey] === 1 ? '' : 's'}.`;
-        }
-      }
-      return `There ${info.total === 1 ? 'is' : 'are'} ${info.total} object${info.total === 1 ? '' : 's'} in the scene.`;
-    }
-
-    // Create shapes
-    const shapeMatch = this.extractShape(lower);
-    const color = this.extractColor(lower);
-    const count = this.extractNumber(lower);
+    const info = this.physics.getObjectsInfo();
     
-    if (shapeMatch) {
-      if (lower.includes('rainbow')) {
-        this.executeAction('createMultiple', { count: count || 7, shape: shapeMatch, color: 'rainbow' });
-        return `Created ${count || 7} rainbow ${shapeMatch}s!`;
-      }
-      if (count && count > 1) {
-        this.executeAction('createMultiple', { count, shape: shapeMatch, color: color || 'random' });
-        return `Created ${count} ${color || 'colorful'} ${shapeMatch}s!`;
-      }
+    // Detect modification intent
+    const isModification = lower.includes('make it') || lower.includes('make the') || 
+                          lower.includes('change') || lower.includes('bigger') || 
+                          lower.includes('smaller') || lower.includes('larger') ||
+                          (lower.includes('it') && !lower.includes('create'));
+    
+    if (isModification) {
+      // Find target object
+      let targetId = this.selectedObjectId || this.lastMentionedObjects[0];
       
-      const actionName = shapeMatch === 'ball' || shapeMatch === 'circle' ? 'createBall' :
-                         shapeMatch === 'triangle' ? 'createTriangle' :
-                         shapeMatch === 'hexagon' ? 'createHexagon' :
-                         shapeMatch === 'star' ? 'createStar' :
-                         shapeMatch === 'pentagon' ? 'createPolygon' :
-                         'createRectangle';
-      
-      const args: any = { color: color || 'blue' };
-      if (actionName === 'createPolygon') args.sides = 5;
-      
-      // Check for "here" or pointing
-      if (lower.includes('here') || lower.includes('where') || lower.includes('pointing')) {
-        this.executeAction('createAtPointing', { shape: shapeMatch, color });
-        return this.lastPointingPosition 
-          ? `Created a ${color || ''} ${shapeMatch} where you're pointing!`
-          : `Point at where you want the ${shapeMatch}, then ask again!`;
-      }
-      
-      this.executeAction(actionName, args);
-      return `Created a ${color || 'blue'} ${shapeMatch}!`;
-    }
-
-    // Gravity
-    if (lower.includes('gravity')) {
-      if (lower.includes('off') || lower.includes('disable') || lower.includes('no') || lower.includes('zero')) {
-        this.executeAction('setGravity', { strength: 0 });
-        return 'Gravity disabled - objects float!';
-      }
-      const strength = this.extractNumber(lower) || 1;
-      const direction = lower.includes('up') ? 'up' : 
-                       lower.includes('left') ? 'left' :
-                       lower.includes('right') ? 'right' : 'down';
-      this.executeAction('setGravity', { strength, direction });
-      return `Gravity set ${direction}!`;
-    }
-
-    // Bounciness
-    if (lower.includes('bounc')) {
-      const value = lower.includes('super') || lower.includes('very') ? 0.95 :
-                   lower.includes('more') ? 0.85 : (this.extractNumber(lower) || 80) / 100;
-      this.executeAction('setBounciness', { value });
-      return `Bounciness set to ${Math.round(value * 100)}%!`;
-    }
-
-    // Clear/reset
-    if (lower.includes('clear') || lower.includes('reset') || lower.includes('remove all')) {
-      this.executeAction('clearAll', {});
-      return 'All objects cleared!';
-    }
-
-    // Recall
-    if (lower.includes('recall') || lower.includes('bring back') || lower.includes('come here')) {
-      this.executeAction('recallBalls', {});
-      return 'Recalling objects to center!';
-    }
-
-    // Magnetic
-    if (lower.includes('magnet')) {
-      const enable = !(lower.includes('off') || lower.includes('disable'));
-      this.executeAction('enableMagnetic', { enable });
-      return enable ? 'Magnetic attraction enabled!' : 'Magnetic attraction disabled.';
-    }
-
-    // Selected object modifications
-    if (this.selectedObjectId) {
-      if (lower.includes('make it') || lower.includes('change')) {
-        if (color) {
-          this.executeAction('setColor', { color });
-          return `Changed the object to ${color}!`;
+      // Try to find by type if mentioned
+      if (!targetId) {
+        if (lower.includes('circle') || lower.includes('ball')) {
+          const obj = info.objects.find(o => o.type === 'circle');
+          if (obj) targetId = obj.id;
+        } else if (lower.includes('triangle')) {
+          const obj = info.objects.find(o => o.type === 'triangle');
+          if (obj) targetId = obj.id;
+        } else if (lower.includes('rectangle') || lower.includes('square')) {
+          const obj = info.objects.find(o => o.type === 'rectangle');
+          if (obj) targetId = obj.id;
         }
+      }
+      
+      // If still no target but only 1 object, use it
+      if (!targetId && info.total === 1) {
+        targetId = info.objects[0].id;
+      }
+      
+      if (targetId) {
         if (lower.includes('bigger') || lower.includes('larger')) {
-          this.executeAction('scaleObject', { scale: 1.5 });
+          this.executeAction('scaleObject', { objectId: targetId, scale: 1.5 });
           return 'Made it bigger!';
         }
         if (lower.includes('smaller')) {
-          this.executeAction('scaleObject', { scale: 0.7 });
+          this.executeAction('scaleObject', { objectId: targetId, scale: 0.7 });
           return 'Made it smaller!';
         }
-        if (lower.includes('static') || lower.includes('freeze')) {
-          this.executeAction('makeStatic', { isStatic: true });
-          return 'Object is now static!';
+        
+        // Mass/weight changes
+        if (lower.includes('heavier') || lower.includes('heavy')) {
+          this.executeAction('setMass', { objectId: targetId, mass: 5 });
+          return 'Made it heavier! It will push lighter objects around.';
+        }
+        if (lower.includes('lighter') || lower.includes('light')) {
+          this.executeAction('setMass', { objectId: targetId, mass: 0.2 });
+          return 'Made it lighter! It will be pushed around by heavier objects.';
+        }
+        
+        // Material changes
+        if (lower.includes('rubber') || lower.includes('bouncy')) {
+          this.executeAction('setMaterial', { objectId: targetId, material: 'rubber' });
+          return 'Made it bouncy like rubber!';
+        }
+        if (lower.includes('metal') || lower.includes('iron') || lower.includes('steel')) {
+          this.executeAction('setMaterial', { objectId: targetId, material: 'metal' });
+          return 'Made it heavy like metal!';
+        }
+        if (lower.includes('ice') || lower.includes('slippery')) {
+          this.executeAction('setMaterial', { objectId: targetId, material: 'ice' });
+          return 'Made it slippery like ice!';
+        }
+        if (lower.includes('foam') || lower.includes('floaty')) {
+          this.executeAction('setMaterial', { objectId: targetId, material: 'foam' });
+          return 'Made it light like foam!';
+        }
+        if (lower.includes('wood') || lower.includes('wooden')) {
+          this.executeAction('setMaterial', { objectId: targetId, material: 'wood' });
+          return 'Made it feel like wood!';
+        }
+        if (lower.includes('stone') || lower.includes('rock')) {
+          this.executeAction('setMaterial', { objectId: targetId, material: 'stone' });
+          return 'Made it solid like stone!';
+        }
+        
+        // Color change
+        for (const color of Object.keys(COLORS)) {
+          if (lower.includes(color)) {
+            this.executeAction('setColor', { objectId: targetId, color });
+            return `Changed it to ${color}!`;
+          }
+        }
+        
+        if (lower.includes('delete') || lower.includes('remove')) {
+          this.executeAction('removeObject', { objectId: targetId });
+          return 'Removed it!';
+        }
+      } else {
+        return 'I don\'t see an object to modify. Try pointing at one or create something first!';
+      }
+    }
+    
+    // Creation intent
+    const shapes = ['ball', 'circle', 'triangle', 'hexagon', 'star', 'rectangle', 'square'];
+    for (const shape of shapes) {
+      if (lower.includes(shape)) {
+        const count = this.extractNumber(lower);
+        const color = this.extractColor(lower);
+        
+        if (count && count > 1) {
+          this.executeAction('createMultiple', { count, shape, color: color || 'random' });
+          return `Created ${count} ${color || 'colorful'} ${shape}s!`;
+        } else {
+          const actionName = shape === 'ball' || shape === 'circle' ? 'createBall' :
+                            shape === 'triangle' ? 'createTriangle' :
+                            shape === 'hexagon' ? 'createHexagon' :
+                            shape === 'star' ? 'createStar' : 'createRectangle';
+          this.executeAction(actionName, { color: color || 'blue' });
+          return `Created a ${color || 'blue'} ${shape}!`;
         }
       }
-      if (lower.includes('delete') || lower.includes('remove')) {
-        this.executeAction('removeObject', {});
-        return 'Removed the selected object.';
+    }
+    
+    // Queries
+    if (lower.includes('how many') || lower.includes('count')) {
+      const color = this.extractColor(lower);
+      if (color && info.byColor[color]) {
+        return `There ${info.byColor[color] === 1 ? 'is' : 'are'} ${info.byColor[color]} ${color} object${info.byColor[color] === 1 ? '' : 's'}.`;
       }
+      return `There ${info.total === 1 ? 'is' : 'are'} ${info.total} object${info.total === 1 ? '' : 's'} on screen.`;
     }
-
-    // Help
-    if (lower.includes('help') || lower.includes('what can')) {
-      return `I can create shapes (balls, triangles, hexagons, stars), control physics, count objects, and modify things. Try: "Create 5 rainbow stars", "How many red balls?", "Add gravity", or point and say "Put a hexagon here"!`;
+    
+    // Physics
+    if (lower.includes('gravity')) {
+      if (lower.includes('off') || lower.includes('disable') || lower.includes('no')) {
+        this.executeAction('setGravity', { strength: 0 });
+        return 'Gravity disabled!';
+      }
+      this.executeAction('setGravity', { direction: 'down', strength: 1 });
+      return 'Gravity enabled!';
     }
-
-    return `I can create physics objects, count shapes, and modify the scene. Try "create a triangle", "how many balls?", or point and say "put a star here"!`;
-  }
-
-  private extractColor(text: string): string | null {
-    const colorNames = Object.keys(COLORS);
-    for (const color of colorNames) {
-      if (text.includes(color)) return color;
+    
+    if (lower.includes('clear') || lower.includes('reset')) {
+      this.executeAction('removeAll', {});
+      return 'Cleared everything!';
     }
-    return null;
-  }
-
-  private extractShape(text: string): string | null {
-    for (const shape of SHAPES) {
-      if (text.includes(shape)) return shape;
-    }
-    return null;
+    
+    return 'I\'m not sure what you mean. Try "create a ball", "make it bigger", or "how many objects?"';
   }
 
   private extractNumber(text: string): number | null {
-    // Handle word numbers
-    const wordNumbers: Record<string, number> = {
-      'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-      'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
-      'dozen': 12, 'twenty': 20
+    const words: Record<string, number> = {
+      one: 1, two: 2, three: 3, four: 4, five: 5,
+      six: 6, seven: 7, eight: 8, nine: 9, ten: 10
     };
-    
-    for (const [word, num] of Object.entries(wordNumbers)) {
+    for (const [word, num] of Object.entries(words)) {
       if (text.includes(word)) return num;
     }
-    
     const match = text.match(/\d+/);
     return match ? parseInt(match[0]) : null;
+  }
+
+  private extractColor(text: string): string | null {
+    for (const color of Object.keys(COLORS)) {
+      if (text.includes(color)) return color;
+    }
+    return null;
   }
 
   isReady(): boolean {

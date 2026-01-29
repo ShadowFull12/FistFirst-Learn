@@ -430,11 +430,35 @@ export class PhysicsEngine {
     total: number; 
     byType: Record<string, number>; 
     byColor: Record<string, number>;
-    objects: { id: string; type: string; color: string; x: number; y: number; velocity: { x: number; y: number } }[];
+    objects: { 
+      id: string; 
+      type: string; 
+      color: string; 
+      x: number; 
+      y: number; 
+      velocity: { x: number; y: number };
+      mass: number;
+      density: number;
+      bounciness: number;
+      friction: number;
+      isStatic: boolean;
+    }[];
   } {
     const byType: Record<string, number> = {};
     const byColor: Record<string, number> = {};
-    const objectsList: { id: string; type: string; color: string; x: number; y: number; velocity: { x: number; y: number } }[] = [];
+    const objectsList: { 
+      id: string; 
+      type: string; 
+      color: string; 
+      x: number; 
+      y: number; 
+      velocity: { x: number; y: number };
+      mass: number;
+      density: number;
+      bounciness: number;
+      friction: number;
+      isStatic: boolean;
+    }[] = [];
 
     this.objects.forEach((obj) => {
       // Count by type
@@ -453,7 +477,12 @@ export class PhysicsEngine {
         velocity: {
           x: Math.round(obj.body.velocity.x * 10) / 10,
           y: Math.round(obj.body.velocity.y * 10) / 10
-        }
+        },
+        mass: Math.round(obj.body.mass * 1000) / 1000,
+        density: Math.round(obj.body.density * 10000) / 10000,
+        bounciness: Math.round(obj.body.restitution * 100) / 100,
+        friction: Math.round(obj.body.friction * 100) / 100,
+        isStatic: obj.body.isStatic
       });
     });
 
@@ -776,6 +805,214 @@ export class PhysicsEngine {
     this.objects.forEach((obj) => {
       obj.body.friction = Math.max(0, Math.min(1, friction));
     });
+  }
+
+  // === ADVANCED PHYSICS PROPERTIES ===
+  
+  // Set mass of a specific object (affects how it responds to forces)
+  setObjectMass(objectId: string, mass: number): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      Body.setMass(obj.body, Math.max(0.01, mass));
+      return true;
+    }
+    return false;
+  }
+
+  // Set density (mass per unit area) - automatically updates mass based on shape size
+  setObjectDensity(objectId: string, density: number): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      Body.setDensity(obj.body, Math.max(0.0001, density));
+      return true;
+    }
+    return false;
+  }
+
+  // Set friction (how much objects grip when sliding against each other)
+  setObjectFriction(objectId: string, friction: number): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      obj.body.friction = Math.max(0, Math.min(1, friction));
+      return true;
+    }
+    return false;
+  }
+
+  // Set air resistance (how much the object slows down in air)
+  setObjectAirResistance(objectId: string, airFriction: number): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      obj.body.frictionAir = Math.max(0, Math.min(1, airFriction));
+      return true;
+    }
+    return false;
+  }
+
+  // Set angular velocity (spin)
+  setObjectSpin(objectId: string, angularVelocity: number): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      Body.setAngularVelocity(obj.body, angularVelocity);
+      return true;
+    }
+    return false;
+  }
+
+  // Set angle (rotation in radians)
+  setObjectAngle(objectId: string, angle: number): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      Body.setAngle(obj.body, angle);
+      return true;
+    }
+    return false;
+  }
+
+  // Apply force to a specific object
+  applyForceToObject(objectId: string, force: { x: number; y: number }): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      Body.applyForce(obj.body, obj.body.position, force);
+      return true;
+    }
+    return false;
+  }
+
+  // Apply impulse (instant velocity change)
+  applyImpulseToObject(objectId: string, impulse: { x: number; y: number }): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      const currentVel = obj.body.velocity;
+      Body.setVelocity(obj.body, { 
+        x: currentVel.x + impulse.x, 
+        y: currentVel.y + impulse.y 
+      });
+      return true;
+    }
+    return false;
+  }
+
+  // Get detailed physics info for an object
+  getObjectPhysicsInfo(objectId: string): {
+    mass: number;
+    density: number;
+    friction: number;
+    airResistance: number;
+    bounciness: number;
+    velocity: { x: number; y: number };
+    angularVelocity: number;
+    angle: number;
+    isStatic: boolean;
+    position: { x: number; y: number };
+  } | null {
+    const obj = this.objects.get(objectId);
+    if (!obj) return null;
+    
+    return {
+      mass: obj.body.mass,
+      density: obj.body.density,
+      friction: obj.body.friction,
+      airResistance: obj.body.frictionAir,
+      bounciness: obj.body.restitution,
+      velocity: { x: obj.body.velocity.x, y: obj.body.velocity.y },
+      angularVelocity: obj.body.angularVelocity,
+      angle: obj.body.angle,
+      isStatic: obj.body.isStatic,
+      position: { x: obj.body.position.x, y: obj.body.position.y }
+    };
+  }
+
+  // Set all physics properties for an object at once
+  setObjectPhysics(objectId: string, properties: {
+    mass?: number;
+    density?: number;
+    friction?: number;
+    airResistance?: number;
+    bounciness?: number;
+    isStatic?: boolean;
+  }): boolean {
+    const obj = this.objects.get(objectId);
+    if (!obj) return false;
+    
+    if (properties.mass !== undefined) Body.setMass(obj.body, properties.mass);
+    if (properties.density !== undefined) Body.setDensity(obj.body, properties.density);
+    if (properties.friction !== undefined) obj.body.friction = properties.friction;
+    if (properties.airResistance !== undefined) obj.body.frictionAir = properties.airResistance;
+    if (properties.bounciness !== undefined) obj.body.restitution = properties.bounciness;
+    if (properties.isStatic !== undefined) Body.setStatic(obj.body, properties.isStatic);
+    
+    return true;
+  }
+
+  // Set mass for all objects of a type or color
+  setMassForAll(options: { type?: string; color?: string; mass: number }): number {
+    let count = 0;
+    this.objects.forEach((obj) => {
+      if (options.type && obj.type !== options.type) return;
+      if (options.color) {
+        const colorName = this.getColorName(obj.color);
+        if (colorName !== options.color.toLowerCase()) return;
+      }
+      Body.setMass(obj.body, options.mass);
+      count++;
+    });
+    return count;
+  }
+
+  // Set density for all objects of a type or color
+  setDensityForAll(options: { type?: string; color?: string; density: number }): number {
+    let count = 0;
+    this.objects.forEach((obj) => {
+      if (options.type && obj.type !== options.type) return;
+      if (options.color) {
+        const colorName = this.getColorName(obj.color);
+        if (colorName !== options.color.toLowerCase()) return;
+      }
+      Body.setDensity(obj.body, options.density);
+      count++;
+    });
+    return count;
+  }
+
+  // Make objects "heavy" (like metal) or "light" (like foam)
+  setObjectMaterial(objectId: string, material: 'metal' | 'wood' | 'rubber' | 'foam' | 'ice' | 'stone'): boolean {
+    const materials: Record<string, { density: number; friction: number; restitution: number; frictionAir: number }> = {
+      metal: { density: 0.008, friction: 0.3, restitution: 0.2, frictionAir: 0.005 },
+      wood: { density: 0.003, friction: 0.4, restitution: 0.3, frictionAir: 0.01 },
+      rubber: { density: 0.002, friction: 0.9, restitution: 0.9, frictionAir: 0.01 },
+      foam: { density: 0.0005, friction: 0.6, restitution: 0.4, frictionAir: 0.05 },
+      ice: { density: 0.002, friction: 0.02, restitution: 0.3, frictionAir: 0.001 },
+      stone: { density: 0.006, friction: 0.5, restitution: 0.1, frictionAir: 0.005 }
+    };
+    
+    const mat = materials[material];
+    if (!mat) return false;
+    
+    const obj = this.objects.get(objectId);
+    if (!obj) return false;
+    
+    Body.setDensity(obj.body, mat.density);
+    obj.body.friction = mat.friction;
+    obj.body.restitution = mat.restitution;
+    obj.body.frictionAir = mat.frictionAir;
+    
+    return true;
+  }
+
+  // Compare masses between two objects
+  compareMasses(id1: string, id2: string): { heavier: string; ratio: number } | null {
+    const obj1 = this.objects.get(id1);
+    const obj2 = this.objects.get(id2);
+    if (!obj1 || !obj2) return null;
+    
+    const m1 = obj1.body.mass;
+    const m2 = obj2.body.mass;
+    
+    return {
+      heavier: m1 >= m2 ? id1 : id2,
+      ratio: Math.max(m1, m2) / Math.min(m1, m2)
+    };
   }
 
   applyForceToAll(force: { x: number; y: number }): void {
