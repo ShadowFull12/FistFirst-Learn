@@ -12,10 +12,15 @@ const BOUNDARY_MARGIN = 15; // Extra margin inside boundaries
 export interface PhysicsObject {
   id: string;
   body: Matter.Body;
-  type: 'circle' | 'rectangle' | 'polygon';
+  type: 'circle' | 'rectangle' | 'polygon' | 'triangle' | 'hexagon' | 'star' | 'custom';
   color: string;
   strokeColor?: string;
   label?: string;
+  shapeInfo?: {
+    sides?: number;
+    points?: number;
+    customVertices?: { x: number; y: number }[];
+  };
 }
 
 export interface PhysicsConfig {
@@ -290,6 +295,238 @@ export class PhysicsEngine {
 
     this.objects.set(id, obj);
     return obj;
+  }
+
+  // Create regular polygon (triangle, pentagon, hexagon, etc.)
+  createPolygon(
+    x: number,
+    y: number,
+    sides: number = 6,
+    radius: number = 40,
+    color: string = '#8b5cf6',
+    options: Partial<Matter.IBodyDefinition> = {}
+  ): PhysicsObject {
+    const id = `poly_${++this.objectIdCounter}`;
+    
+    const body = Bodies.polygon(x, y, sides, radius, {
+      restitution: options.restitution ?? 0.7,
+      friction: options.friction ?? 0.1,
+      frictionAir: options.frictionAir ?? 0.01,
+      density: options.density ?? 0.001,
+      label: id,
+      ...options
+    });
+
+    World.add(this.world, body);
+
+    let shapeType: PhysicsObject['type'] = 'polygon';
+    if (sides === 3) shapeType = 'triangle';
+    else if (sides === 6) shapeType = 'hexagon';
+
+    const obj: PhysicsObject = {
+      id,
+      body,
+      type: shapeType,
+      color,
+      strokeColor: this.darkenColor(color),
+      shapeInfo: { sides }
+    };
+
+    this.objects.set(id, obj);
+    console.log(`Created ${sides}-sided polygon: ${id} at (${x}, ${y})`);
+    return obj;
+  }
+
+  // Create star shape
+  createStar(
+    x: number,
+    y: number,
+    points: number = 5,
+    outerRadius: number = 50,
+    innerRadius: number = 25,
+    color: string = '#f59e0b',
+    options: Partial<Matter.IBodyDefinition> = {}
+  ): PhysicsObject {
+    const id = `star_${++this.objectIdCounter}`;
+    
+    // Generate star vertices
+    const vertices: { x: number; y: number }[] = [];
+    for (let i = 0; i < points * 2; i++) {
+      const angle = (i * Math.PI) / points - Math.PI / 2;
+      const radius = i % 2 === 0 ? outerRadius : innerRadius;
+      vertices.push({
+        x: Math.cos(angle) * radius,
+        y: Math.sin(angle) * radius
+      });
+    }
+    
+    const body = Bodies.fromVertices(x, y, [vertices], {
+      restitution: options.restitution ?? 0.7,
+      friction: options.friction ?? 0.1,
+      frictionAir: options.frictionAir ?? 0.01,
+      density: options.density ?? 0.001,
+      label: id,
+      ...options
+    });
+
+    World.add(this.world, body);
+
+    const obj: PhysicsObject = {
+      id,
+      body,
+      type: 'star',
+      color,
+      strokeColor: this.darkenColor(color),
+      shapeInfo: { points, customVertices: vertices }
+    };
+
+    this.objects.set(id, obj);
+    console.log(`Created ${points}-point star: ${id} at (${x}, ${y})`);
+    return obj;
+  }
+
+  // Create custom shape from vertices
+  createCustomShape(
+    x: number,
+    y: number,
+    vertices: { x: number; y: number }[],
+    color: string = '#06b6d4',
+    options: Partial<Matter.IBodyDefinition> = {}
+  ): PhysicsObject | null {
+    if (vertices.length < 3) {
+      console.error('Custom shape needs at least 3 vertices');
+      return null;
+    }
+
+    const id = `custom_${++this.objectIdCounter}`;
+    
+    const body = Bodies.fromVertices(x, y, [vertices], {
+      restitution: options.restitution ?? 0.6,
+      friction: options.friction ?? 0.1,
+      frictionAir: options.frictionAir ?? 0.01,
+      density: options.density ?? 0.001,
+      label: id,
+      ...options
+    });
+
+    World.add(this.world, body);
+
+    const obj: PhysicsObject = {
+      id,
+      body,
+      type: 'custom',
+      color,
+      strokeColor: this.darkenColor(color),
+      shapeInfo: { customVertices: vertices }
+    };
+
+    this.objects.set(id, obj);
+    console.log(`Created custom shape: ${id} at (${x}, ${y})`);
+    return obj;
+  }
+
+  // Query objects in the scene
+  getObjectsInfo(): { 
+    total: number; 
+    byType: Record<string, number>; 
+    byColor: Record<string, number>;
+    objects: { id: string; type: string; color: string; x: number; y: number; velocity: { x: number; y: number } }[];
+  } {
+    const byType: Record<string, number> = {};
+    const byColor: Record<string, number> = {};
+    const objectsList: { id: string; type: string; color: string; x: number; y: number; velocity: { x: number; y: number } }[] = [];
+
+    this.objects.forEach((obj) => {
+      // Count by type
+      byType[obj.type] = (byType[obj.type] || 0) + 1;
+      
+      // Count by color (approximate color name)
+      const colorName = this.getColorName(obj.color);
+      byColor[colorName] = (byColor[colorName] || 0) + 1;
+      
+      objectsList.push({
+        id: obj.id,
+        type: obj.type,
+        color: colorName,
+        x: Math.round(obj.body.position.x),
+        y: Math.round(obj.body.position.y),
+        velocity: {
+          x: Math.round(obj.body.velocity.x * 10) / 10,
+          y: Math.round(obj.body.velocity.y * 10) / 10
+        }
+      });
+    });
+
+    return {
+      total: this.objects.size,
+      byType,
+      byColor,
+      objects: objectsList
+    };
+  }
+
+  // Find object at specific position
+  getObjectAtPosition(x: number, y: number, radius: number = 50): PhysicsObject | null {
+    return this.findNearestObject({ x, y }, radius);
+  }
+
+  // Get color name from hex
+  private getColorName(hex: string): string {
+    const colorMap: Record<string, string> = {
+      '#ef4444': 'red', '#f97316': 'orange', '#eab308': 'yellow',
+      '#22c55e': 'green', '#3b82f6': 'blue', '#a855f7': 'purple',
+      '#ec4899': 'pink', '#ffffff': 'white', '#1a1a1a': 'black',
+      '#6b7280': 'gray', '#10b981': 'emerald', '#8b5cf6': 'violet',
+      '#f59e0b': 'amber', '#06b6d4': 'cyan', '#14b8a6': 'teal'
+    };
+    return colorMap[hex.toLowerCase()] || hex;
+  }
+
+  // Modify existing object properties
+  setObjectColor(objectId: string, color: string): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      obj.color = color;
+      obj.strokeColor = this.darkenColor(color);
+      return true;
+    }
+    return false;
+  }
+
+  setObjectVelocity(objectId: string, vx: number, vy: number): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      Body.setVelocity(obj.body, { x: vx, y: vy });
+      return true;
+    }
+    return false;
+  }
+
+  setObjectPosition(objectId: string, x: number, y: number): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      Body.setPosition(obj.body, { x, y });
+      return true;
+    }
+    return false;
+  }
+
+  setObjectStatic(objectId: string, isStatic: boolean): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      Body.setStatic(obj.body, isStatic);
+      return true;
+    }
+    return false;
+  }
+
+  scaleObject(objectId: string, scale: number): boolean {
+    const obj = this.objects.get(objectId);
+    if (obj) {
+      Body.scale(obj.body, scale, scale);
+      return true;
+    }
+    return false;
   }
 
   // Hand collision bodies
@@ -774,6 +1011,9 @@ export class PhysicsEngine {
         const width = bounds.max.x - bounds.min.x;
         const height = bounds.max.y - bounds.min.y;
         this.renderer.drawRect(pos.x, pos.y, width, height, obj.body.angle, obj.color);
+      } else {
+        // Polygons, triangles, hexagons, stars, custom shapes - draw using vertices
+        this.renderer.drawPolygon(obj.body.vertices, obj.color, obj.strokeColor, obj.body.angle);
       }
     });
   }

@@ -35,6 +35,8 @@ export interface HandData {
   isFist: boolean;
   handScale: number;
   isPartial: boolean; // Whether hand is partially visible
+  isPointing: boolean; // Index finger extended, others curled
+  pointingAt: { x: number; y: number } | null; // Where index finger is pointing
 }
 
 interface VelocityHistory {
@@ -174,6 +176,9 @@ export class HandTracker {
           const { isPinching, pinchStrength } = this.detectPinchPartial(screenLandmarks, handedness);
           const isFist = this.detectFist(screenLandmarks);
           
+          // Detect pointing gesture (index extended, others curled)
+          const { isPointing, pointingAt } = this.detectPointing(screenLandmarks);
+          
           // Average depth
           const depth = screenLandmarks.reduce((sum, l) => sum + l.z, 0) / screenLandmarks.length;
 
@@ -190,7 +195,9 @@ export class HandTracker {
             depth,
             isFist,
             handScale,
-            isPartial
+            isPartial,
+            isPointing,
+            pointingAt
           });
         }
       }
@@ -465,6 +472,89 @@ export class HandTracker {
     }
     
     return curledFingers >= 3;
+  }
+
+  // Detect pointing gesture - index finger extended, other fingers curled
+  private detectPointing(landmarks: { x: number; y: number; z: number }[]): {
+    isPointing: boolean;
+    pointingAt: { x: number; y: number } | null;
+  } {
+    const wrist = landmarks[HAND_LANDMARKS.WRIST];
+    const indexTip = landmarks[HAND_LANDMARKS.INDEX_TIP];
+    const indexPip = landmarks[HAND_LANDMARKS.INDEX_PIP];
+    const indexMcp = landmarks[HAND_LANDMARKS.INDEX_MCP];
+    const middleTip = landmarks[HAND_LANDMARKS.MIDDLE_TIP];
+    const ringTip = landmarks[HAND_LANDMARKS.RING_TIP];
+    const pinkyTip = landmarks[HAND_LANDMARKS.PINKY_TIP];
+    const palmCenter = this.calculatePalmCenter3D(landmarks);
+    
+    // Check if index finger is extended (tip far from palm)
+    const indexDist = Math.sqrt(
+      Math.pow(indexTip.x - palmCenter.x, 2) +
+      Math.pow(indexTip.y - palmCenter.y, 2)
+    );
+    
+    // Check if other fingers are curled (tips close to palm)
+    const middleDist = Math.sqrt(
+      Math.pow(middleTip.x - palmCenter.x, 2) +
+      Math.pow(middleTip.y - palmCenter.y, 2)
+    );
+    const ringDist = Math.sqrt(
+      Math.pow(ringTip.x - palmCenter.x, 2) +
+      Math.pow(ringTip.y - palmCenter.y, 2)
+    );
+    const pinkyDist = Math.sqrt(
+      Math.pow(pinkyTip.x - palmCenter.x, 2) +
+      Math.pow(pinkyTip.y - palmCenter.y, 2)
+    );
+    
+    // Index extended, others curled
+    const indexExtended = indexDist > 100;
+    const othersCurled = middleDist < 90 && ringDist < 90 && pinkyDist < 90;
+    
+    // Also check index finger is straight (tip above PIP)
+    const indexStraight = this.isFingerStraight(indexMcp, indexPip, indexTip);
+    
+    const isPointing = indexExtended && othersCurled && indexStraight;
+    
+    if (isPointing) {
+      // Calculate where the finger is pointing
+      // Extend a line from MCP through TIP
+      const dx = indexTip.x - indexMcp.x;
+      const dy = indexTip.y - indexMcp.y;
+      const extension = 2.0; // How far to extend the pointing line
+      
+      return {
+        isPointing: true,
+        pointingAt: {
+          x: indexTip.x + dx * extension,
+          y: indexTip.y + dy * extension
+        }
+      };
+    }
+    
+    return { isPointing: false, pointingAt: null };
+  }
+
+  // Helper to check if finger joints are roughly aligned (straight finger)
+  private isFingerStraight(
+    mcp: { x: number; y: number },
+    pip: { x: number; y: number },
+    tip: { x: number; y: number }
+  ): boolean {
+    // Calculate angle at PIP joint
+    const v1 = { x: mcp.x - pip.x, y: mcp.y - pip.y };
+    const v2 = { x: tip.x - pip.x, y: tip.y - pip.y };
+    
+    const dot = v1.x * v2.x + v1.y * v2.y;
+    const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+    const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+    
+    if (mag1 < 1 || mag2 < 1) return false;
+    
+    const cosAngle = dot / (mag1 * mag2);
+    // cos(angle) < -0.5 means angle > 120 degrees (roughly straight)
+    return cosAngle < -0.3;
   }
 
   render(hands: HandData[]): void {

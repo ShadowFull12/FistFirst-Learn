@@ -160,6 +160,52 @@ export class CanvasRenderer {
     this.physicsCtx.restore();
   }
 
+  // Draw polygon shapes (triangles, hexagons, stars, custom)
+  drawPolygon(vertices: { x: number; y: number }[], color: string, strokeColor?: string, _angle?: number): void {
+    if (vertices.length < 3) return;
+    
+    // Calculate center for gradient
+    let centerX = 0, centerY = 0;
+    vertices.forEach(v => {
+      centerX += v.x;
+      centerY += v.y;
+    });
+    centerX /= vertices.length;
+    centerY /= vertices.length;
+    
+    // Calculate radius for gradient
+    const maxDist = Math.max(...vertices.map(v => 
+      Math.sqrt((v.x - centerX) ** 2 + (v.y - centerY) ** 2)
+    ));
+    
+    // Create gradient
+    const gradient = this.physicsCtx.createRadialGradient(
+      centerX - maxDist * 0.2, centerY - maxDist * 0.2, 0,
+      centerX, centerY, maxDist
+    );
+    gradient.addColorStop(0, this.lightenColor(color, 40));
+    gradient.addColorStop(0.5, color);
+    gradient.addColorStop(1, this.darkenColor(color, 30));
+    
+    // Draw polygon
+    this.physicsCtx.beginPath();
+    this.physicsCtx.moveTo(vertices[0].x, vertices[0].y);
+    for (let i = 1; i < vertices.length; i++) {
+      this.physicsCtx.lineTo(vertices[i].x, vertices[i].y);
+    }
+    this.physicsCtx.closePath();
+    
+    this.physicsCtx.fillStyle = gradient;
+    this.physicsCtx.fill();
+    
+    // Draw stroke
+    if (strokeColor) {
+      this.physicsCtx.strokeStyle = strokeColor;
+      this.physicsCtx.lineWidth = 2;
+      this.physicsCtx.stroke();
+    }
+  }
+
   // Draw hand landmarks
   drawHandLandmark(x: number, y: number, radius: number, color: string): void {
     this.handCtx.beginPath();

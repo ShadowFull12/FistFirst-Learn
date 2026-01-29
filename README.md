@@ -1,40 +1,56 @@
 # ✊ FistFirst Learn
 
-> **Interactive AR Physics Sandbox with Hand Tracking & AI**
+> **Interactive AR Physics Sandbox with Hand Tracking, AI Agent & Scene Awareness**
 
-An immersive browser-based learning experience that combines augmented reality, real-time hand tracking, physics simulation, and AI assistance. Use your hands to interact with physics objects directly through your webcam!
+An immersive browser-based learning experience that combines augmented reality, real-time hand tracking, physics simulation, and a **conversational AI agent**. Use your hands to interact with physics objects directly through your webcam - and talk to an AI that understands what's on screen!
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat&logo=vite&logoColor=white)
 ![MediaPipe](https://img.shields.io/badge/MediaPipe-00A67E?style=flat&logo=google&logoColor=white)
 ![Matter.js](https://img.shields.io/badge/Matter.js-4B5562?style=flat&logo=javascript&logoColor=white)
+![AI Powered](https://img.shields.io/badge/AI-GLM%204.5-ff6b6b?style=flat)
 
 ---
 
 ## ✨ Features
 
+### 🤖 Conversational AI Agent
+- **Scene-aware AI** that knows what objects are on screen
+- **Natural language commands** - "Create 5 rainbow triangles", "How many red balls?"
+- **Pointing integration** - Point and say "Put a star here!"
+- **Object modification** - "Make it bigger", "Change it to purple"
+- **Query the scene** - "Count all the hexagons", "What's at my finger?"
+
 ### 🖐️ Hand Tracking
 - **Real-time hand detection** using MediaPipe Tasks Vision
 - **Pinch to grab** - Pick up and throw physics objects
-- **Palm gesture** - Hold palm facing camera for 3 seconds to move the play area
-- **Fist to lock** - Close fist to lock the play area in position
+- **Point to select** - Extend index finger to select objects
+- **Palm gesture** - Hold palm facing camera for 3 seconds to move play area
+- **Fist to lock** - Close fist to lock play area position
 
 ### ⚙️ Physics Engine
 - **Matter.js 2D physics** with realistic collisions and gravity
-- **Bouncy objects** - Adjustable bounciness and friction
+- **Multiple shapes** - Balls, rectangles, triangles, hexagons, stars, pentagons
+- **Custom polygons** - Any regular polygon with configurable sides
 - **Boundary walls** - Objects stay within the play area
 - **Throw mechanics** - Grab and release to throw objects with velocity
 
-### 🤖 AI Assistant
-- **Natural language commands** - "Create 5 red balls", "Add gravity", "Make a rainbow"
-- **Powered by GLM 4.5 AIR** via OpenRouter (free tier available)
-- **Voice input support** - Speak commands using your microphone
+### 🎨 Shape Creation
+| Shape | Command Examples |
+|-------|-----------------|
+| **Balls/Circles** | "Create a red ball", "Add 10 blue circles" |
+| **Rectangles/Squares** | "Make a green box", "Create 3 squares" |
+| **Triangles** | "Add a purple triangle", "5 rainbow triangles" |
+| **Hexagons** | "Create a hexagon here", "10 yellow hexagons" |
+| **Pentagons** | "Make a pentagon", "Create 5-sided polygon" |
+| **Stars** | "Add a gold star", "Create 5 rainbow stars" |
 
-### 🎮 Interactive UI
+### 🎮 Interactive Features
 - **Moveable play area** - 80% of screen, repositionable via hand gestures
 - **Chat interface** - Text or voice input for AI commands
-- **Real-time feedback** - Visual indicators for hand tracking and gestures
-- **Recall button** - Bring all balls back to center
+- **Scene queries** - Ask "How many objects?", "Count red balls"
+- **Object selection** - Point at objects to select and modify them
+- **Recall button** - Bring all objects back to center
 
 ---
 
@@ -49,8 +65,8 @@ An immersive browser-based learning experience that combines augmented reality, 
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/fistfirst-learn.git
-   cd fistfirst-learn
+   git clone https://github.com/ShadowFull12/FistFirst-Learn.git
+   cd FistFirst-Learn
    ```
 
 2. **Install dependencies**
@@ -83,36 +99,48 @@ An immersive browser-based learning experience that combines augmented reality, 
 
 ## 🎯 How to Use
 
+### Hand Gestures
 | Gesture | Action |
 |---------|--------|
 | ✋ **Palm facing camera (3s)** | Move the play area |
 | ✊ **Close fist** | Lock play area position |
 | 🤏 **Pinch (thumb + index)** | Grab objects |
+| 👆 **Point (index extended)** | Select objects / specify position |
 | 👋 **Release pinch** | Throw objects |
 
-### AI Commands (Examples)
-- `"Create a red ball"` - Spawns a red physics ball
-- `"Add 10 rainbow balls"` - Creates multiple colorful balls
-- `"Enable gravity"` - Turns on downward gravity
-- `"Clear all"` - Removes all objects
-- `"Make it bouncy"` - Increases object bounciness
+### AI Commands
+| Command Type | Examples |
+|--------------|----------|
+| **Create** | "Create a red ball", "Make 5 triangles" |
+| **Query** | "How many balls?", "Count red objects" |
+| **Modify** | "Make it bigger", "Change to purple" |
+| **Physics** | "Add gravity", "Enable bouncy mode" |
+| **Pointing** | "Put a star here", "Create hexagon where I'm pointing" |
+| **Patterns** | "10 balls in a circle", "5 stars in a line" |
+
+### Voice Commands
+Click the microphone button and speak naturally:
+- "Create 10 rainbow stars"
+- "How many objects are on screen?"
+- "Add a slider for gravity"
+- "Clear everything"
 
 ---
 
 ## 🏗️ Project Structure
 
 ```
-fistfirst-learn/
+FistFirst-Learn/
 ├── src/
 │   ├── main.ts          # App entry point & game loop
-│   ├── handTracking.ts  # MediaPipe hand tracking
-│   ├── physics.ts       # Matter.js physics engine
+│   ├── ai.ts            # Conversational AI agent with scene awareness
+│   ├── handTracking.ts  # MediaPipe hand tracking + pointing detection
+│   ├── physics.ts       # Matter.js physics engine + shapes
 │   ├── playingField.ts  # Moveable play area with gestures
-│   ├── ai.ts            # AI assistant (OpenRouter/GLM)
+│   ├── renderer.ts      # Canvas rendering for all shapes
+│   ├── uiManager.ts     # Dynamic UI elements
 │   ├── voice.ts         # Voice recognition
 │   ├── webcam.ts        # Webcam management
-│   ├── renderer.ts      # Canvas rendering
-│   ├── uiManager.ts     # Dynamic UI elements
 │   └── styles.css       # Styling
 ├── index.html           # Main HTML file
 ├── vite.config.ts       # Vite configuration
@@ -132,6 +160,43 @@ fistfirst-learn/
 | **Matter.js** | 2D physics simulation |
 | **OpenRouter API** | AI assistant (GLM 4.5 AIR) |
 | **Web Speech API** | Voice recognition |
+
+---
+
+## 🤖 AI Capabilities
+
+The AI agent is **scene-aware** and can:
+
+### Create Objects
+```
+"Create a red ball"
+"Make 5 rainbow triangles"
+"Add 10 hexagons in a circle pattern"
+"Put a star where I'm pointing"
+```
+
+### Query the Scene
+```
+"How many balls are there?"
+"Count the red objects"
+"What objects are on screen?"
+```
+
+### Modify Objects
+```
+"Make it bigger" (selected object)
+"Change it to purple"
+"Delete that"
+"Make it static"
+```
+
+### Control Physics
+```
+"Add gravity"
+"Disable gravity"
+"Make everything bouncy"
+"Enable magnetic attraction"
+```
 
 ---
 
@@ -155,13 +220,14 @@ fistfirst-learn/
 
 *AI features are optional - hand tracking and physics work without an API key.
 
-### Hand Tracking Settings
-
-The hand tracker uses these default settings (configurable in `handTracking.ts`):
-- Detection confidence: 0.3
-- Tracking confidence: 0.3
-- Max hands: 2
-- GPU acceleration enabled
+### Supported Shapes
+- Circle/Ball
+- Rectangle/Square/Box
+- Triangle (3 sides)
+- Pentagon (5 sides)
+- Hexagon (6 sides)
+- Star (5 points)
+- Custom polygon (any sides)
 
 ---
 
@@ -202,6 +268,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [Matter.js](https://brm.io/matter-js/) for the physics engine
 - [OpenRouter](https://openrouter.ai/) for AI API access
 - [Vite](https://vitejs.dev/) for the blazing fast build tool
+- [GLM 4.5 AIR](https://openrouter.ai/models/z-ai/glm-4.5-air:free) for the conversational AI
 
 ---
 

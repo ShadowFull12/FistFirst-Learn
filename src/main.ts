@@ -181,7 +181,7 @@ class ARPlayground {
 
       // Show welcome message
       this.addChatMessage(
-        '✊ FistFirst Learn Ready! Show your palm for 3 seconds to move the play area. Try "create more balls" or "make a rainbow!"',
+        '✊ FistFirst Learn Ready! Try: "Create 5 rainbow triangles", "How many balls?", or point and say "Put a star here!"',
         false
       );
 
@@ -222,6 +222,9 @@ class ARPlayground {
       
       // Update magnetic attraction with hand positions
       this.physics.updateHandPositionsForMagnet(hands);
+      
+      // Update AI with hand data for pointing detection
+      this.ai.updateHands(hands);
       
       // Update playing field with hand gestures
       this.playingField.update(hands, currentTime);
