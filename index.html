@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FistFirst Learn - AR Physics Sandbox</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <!-- Main AR Container with Layered Architecture -->
+  <div id="ar-container">
+    <!-- Layer 1: Webcam Video Feed (Base Layer) -->
+    <video id="webcam" autoplay playsinline muted></video>
+    
+    <!-- Layer 2: Physics Canvas (Matter.js objects) -->
+    <canvas id="physics-canvas"></canvas>
+    
+    <!-- Layer 3: Hand Tracking Overlay -->
+    <canvas id="hand-canvas"></canvas>
+    
+    <!-- Layer 4: Dynamic UI Elements Layer -->
+    <div id="ui-layer"></div>
+  </div>
+
+  <!-- AI Chat Interface -->
+  <div id="chat-interface">
+    <div id="chat-messages"></div>
+    <div id="chat-input-container">
+      <input type="text" id="chat-input" placeholder="Tell me what to create..." />
+      <button id="send-btn" title="Send">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+      <button id="voice-btn" title="Voice Input">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg>
+      </button>
+      <button id="recall-btn" title="Recall Balls to Center">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8-8-8z" transform="rotate(270 12 12)"/></svg>
+      </button>
+    </div>
+    <div id="voice-status"></div>
+  </div>
+
+  <!-- Start Screen Overlay -->
+  <div id="start-overlay">
+    <div id="start-content">
+      <h1>✊ FistFirst Learn</h1>
+      <p>Interactive AR physics sandbox with hand tracking & AI</p>
+      <button id="start-btn">Start Learning</button>
+      <p class="note">Requires webcam access. Works best in Chrome/Edge.</p>
+    </div>
+  </div>
+
+  <!-- Instructions Panel -->
+  <div id="instructions-panel">
+    <button id="toggle-instructions">?</button>
+    <div id="instructions-content" class="hidden">
+      <h3>How to Use</h3>
+      <ul>
+        <li><strong>✋ Palm facing camera 3s</strong> - Move field</li>
+        <li><strong>✊ Close fist</strong> - Lock field position</li>
+        <li><strong>🤏 Pinch</strong> - Grab and throw balls</li>
+        <li><strong>"Create a ball"</strong> - Add physics balls</li>
+        <li><strong>"Add gravity"</strong> - Enable gravity</li>
+      </ul>
+      <p>⬆️ Click arrow button to recall balls!</p>
+      <p>📐 Field is 80% of screen. Show palm (front, fingers up) to move it.</p>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

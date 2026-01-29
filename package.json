@@ -1,0 +1,28 @@
+{
+  "name": "fistfirst-learn",
+  "version": "1.0.0",
+  "description": "FistFirst Learn - Interactive AR physics sandbox with hand tracking and AI",
+  "type": "module",
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "keywords": ["ar", "hand-tracking", "physics", "mediapipe", "matter-js", "ai", "interactive", "learning"],
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.14",
+    "matter-js": "^0.20.0",
+    "openai": "^4.77.0"
+  },
+  "devDependencies": {
+    "@types/matter-js": "^0.19.7",
+    "typescript": "^5.3.3",
+    "vite": "^5.4.11"
+  }
+}
