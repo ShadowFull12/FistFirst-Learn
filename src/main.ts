@@ -248,7 +248,37 @@ class ARPlayground {
   }
 
   private async handleUserInput(input: string): Promise<void> {
-    await this.ai.processCommand(input);
+    // Show thinking animation
+    const thinkingEl = this.showThinkingAnimation();
+    
+    try {
+      await this.ai.processCommand(input);
+    } finally {
+      // Remove thinking animation
+      this.removeThinkingAnimation(thinkingEl);
+    }
+  }
+
+  private showThinkingAnimation(): HTMLElement {
+    const thinkingEl = document.createElement('div');
+    thinkingEl.className = 'chat-message assistant thinking';
+    thinkingEl.innerHTML = `
+      <span class="thinking-text">Thinking</span>
+      <span class="thinking-dots">
+        <span class="dot">.</span>
+        <span class="dot">.</span>
+        <span class="dot">.</span>
+      </span>
+    `;
+    this.chatMessages.appendChild(thinkingEl);
+    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    return thinkingEl;
+  }
+
+  private removeThinkingAnimation(thinkingEl: HTMLElement): void {
+    if (thinkingEl && thinkingEl.parentNode) {
+      thinkingEl.parentNode.removeChild(thinkingEl);
+    }
   }
 
   private addChatMessage(message: string, isUser: boolean): void {
