@@ -147,7 +147,7 @@ class ARPlayground {
   async start(): Promise<void> {
     try {
       // Initialize AI with hardcoded OpenRouter API key
-      const apiKey = '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';
+      const apiKey = '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';
       this.ai.initialize(apiKey);
 
       // Start webcam
