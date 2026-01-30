@@ -289,6 +289,17 @@ For CONVERSATION (questions, explanations, chat) - just respond naturally withou
 - recallBalls: {}
 - clearAll: {}
 
+### UI Elements (create interactive controls!):
+- createSlider: {label, controls, min?, max?, x?, y?} - controls: "gravity", "bounciness", "friction", "speed"
+- createCounter: {label, tracks, x?, y?} - tracks: "speed", "objectCount", "fps", "collisions", "score"
+- createButton: {label, action, x?, y?} - action: "clearAll", "spawnBall", "toggleGravity", "randomize", custom action name
+- createTimer: {label, x?, y?, countDown?, startValue?} - creates a stopwatch or countdown
+- createScoreTracker: {label, x?, y?} - tracks points/score
+- createProgressBar: {label, tracks, max?, x?, y?} - visual progress bar
+- createToggle: {label, controls, x?, y?} - on/off switch for physics properties
+- removeUIElement: {id} - remove a specific UI element
+- clearUI: {} - remove all UI elements
+
 ## EXAMPLES OF INTELLIGENT RESPONSES:
 
 User: "What's the heaviest object here?"
@@ -313,12 +324,34 @@ User: "Create a bouncy ball"
 \`\`\`
 
 User: "Why is the triangle not moving?"
-(analyze scene and explain)
-"The triangle might be static (frozen in place) or resting on the ground. Looking at the scene... [check if it's static or just at rest]"
+"The triangle might be static or just resting on something. Want me to give it a push?"
 
 User: "How are you?"
-(normal conversation)
-"I'm doing great! Ready to help you play with physics. What would you like to create or explore today?"
+"I'm doing great! Ready to help you play with physics. What would you like to create?"
+
+User: "Add a gravity slider"
+"Done! You can drag it to adjust gravity."
+\`\`\`cmd
+{"action": "createSlider", "params": {"label": "Gravity", "controls": "gravity", "min": -2, "max": 3}}
+\`\`\`
+
+User: "Show me how many objects there are"
+"Here's a counter for you!"
+\`\`\`cmd
+{"action": "createCounter", "params": {"label": "Objects", "tracks": "objectCount"}}
+\`\`\`
+
+User: "Add a button to clear everything"
+"Added a clear button!"
+\`\`\`cmd
+{"action": "createButton", "params": {"label": "Clear All", "action": "clearAll"}}
+\`\`\`
+
+User: "Make a game with a score"
+"Let's do it! Here's your score tracker."
+\`\`\`cmd
+{"action": "createScoreTracker", "params": {"label": "Score"}}
+\`\`\`
 
 ## CRITICAL RULES:
 1. Keep answers SHORT - 1-3 sentences usually
@@ -328,6 +361,7 @@ User: "How are you?"
 5. Questions = answer simply, don't create objects
 6. Use objectId from scene when modifying objects
 7. "LAST" = most recently created object
+8. Create UI elements when asked for sliders, buttons, counters, scores, timers!
 
 Colors: red, orange, yellow, green, blue, purple, pink, white, black, gray, cyan, teal, amber, violet, emerald, lime, indigo, rose, gold, silver
 
@@ -886,6 +920,101 @@ Remember: You're a friendly study buddy, not Wikipedia. Keep it simple and fun!`
           return { success: true, message: 'Recalling objects to center' };
         }
 
+        // === UI ELEMENTS ===
+        case 'createSlider': {
+          const x = params.x ?? 50;
+          const y = params.y ?? 100;
+          const label = params.label ?? 'Slider';
+          const controls = params.controls ?? 'gravity';
+          const min = params.min ?? 0;
+          const max = params.max ?? 2;
+          const el = this.uiManager.createSlider(x, y, label, controls, min, max);
+          return { success: true, message: `Created ${label} slider`, data: { id: el.id } };
+        }
+
+        case 'createCounter': {
+          const x = params.x ?? 50;
+          const y = params.y ?? 50;
+          const label = params.label ?? 'Counter';
+          const tracks = params.tracks ?? 'objectCount';
+          const el = this.uiManager.createCounter(x, y, label, tracks);
+          return { success: true, message: `Created ${label} counter`, data: { id: el.id } };
+        }
+
+        case 'createButton': {
+          const x = params.x ?? 50;
+          const y = params.y ?? 150;
+          const label = params.label ?? 'Button';
+          const action = params.action ?? 'clearAll';
+          const el = this.uiManager.createButton(x, y, label, action, () => {
+            this.handleButtonAction(action);
+          });
+          return { success: true, message: `Created ${label} button`, data: { id: el.id } };
+        }
+
+        case 'createTimer': {
+          const x = params.x ?? 50;
+          const y = params.y ?? 50;
+          const label = params.label ?? 'Timer';
+          const countDown = params.countDown ?? false;
+          const startValue = params.startValue ?? (countDown ? 60 : 0);
+          const el = this.uiManager.createTimer(x, y, label, countDown, startValue);
+          return { success: true, message: `Created ${label} timer`, data: { id: el.id } };
+        }
+
+        case 'createScoreTracker': {
+          const x = params.x ?? 50;
+          const y = params.y ?? 50;
+          const label = params.label ?? 'Score';
+          const el = this.uiManager.createScoreTracker(x, y, label);
+          return { success: true, message: `Created ${label} tracker`, data: { id: el.id } };
+        }
+
+        case 'createProgressBar': {
+          const x = params.x ?? 50;
+          const y = params.y ?? 100;
+          const label = params.label ?? 'Progress';
+          const tracks = params.tracks ?? 'objectCount';
+          const max = params.max ?? 20;
+          const el = this.uiManager.createProgressBar(x, y, label, tracks, max);
+          return { success: true, message: `Created ${label} progress bar`, data: { id: el.id } };
+        }
+
+        case 'createToggle': {
+          const x = params.x ?? 50;
+          const y = params.y ?? 150;
+          const label = params.label ?? 'Toggle';
+          const controls = params.controls ?? 'gravity';
+          const el = this.uiManager.createToggle(x, y, label, controls, (enabled) => {
+            this.handleToggle(controls, enabled);
+          });
+          return { success: true, message: `Created ${label} toggle`, data: { id: el.id } };
+        }
+
+        case 'removeUIElement': {
+          if (params.id) {
+            const success = this.uiManager.removeElement(params.id);
+            return { success, message: success ? 'Removed UI element' : 'Element not found' };
+          }
+          return { success: false, message: 'No element ID provided' };
+        }
+
+        case 'clearUI': {
+          this.uiManager.clearAll();
+          return { success: true, message: 'Cleared all UI elements' };
+        }
+
+        case 'addScore': {
+          const points = params.points ?? 1;
+          this.uiManager.addScore(points);
+          return { success: true, message: `Added ${points} points` };
+        }
+
+        case 'resetScore': {
+          this.uiManager.resetScore();
+          return { success: true, message: 'Score reset' };
+        }
+
         default:
           console.warn('Unknown action:', actionName);
           return { success: false, message: `Unknown action: ${actionName}` };
@@ -893,6 +1022,48 @@ Remember: You're a friendly study buddy, not Wikipedia. Keep it simple and fun!`
     } catch (error) {
       console.error(`Error in ${actionName}:`, error);
       return { success: false, message: `Error: ${error}` };
+    }
+  }
+
+  private handleButtonAction(action: string): void {
+    switch (action) {
+      case 'clearAll':
+        this.physics.clearAllObjects();
+        break;
+      case 'spawnBall':
+        const x = Math.random() * window.innerWidth * 0.6 + window.innerWidth * 0.2;
+        const y = window.innerHeight * 0.2;
+        this.physics.createBall(x, y, 30, COLORS[Object.keys(COLORS)[Math.floor(Math.random() * Object.keys(COLORS).length)]]);
+        break;
+      case 'toggleGravity':
+        const currentG = this.physics.getGravity();
+        this.physics.setGravity(0, currentG.y === 0 ? 1 : 0);
+        break;
+      case 'randomize':
+        const objects = this.physics.getObjects();
+        for (const obj of objects) {
+          const vx = (Math.random() - 0.5) * 20;
+          const vy = (Math.random() - 0.5) * 20;
+          this.physics.setObjectVelocity(obj.id, vx, vy);
+        }
+        break;
+      default:
+        console.log('Custom button action:', action);
+    }
+  }
+
+  private handleToggle(controls: string, enabled: boolean): void {
+    switch (controls) {
+      case 'gravity':
+        this.physics.setGravity(0, enabled ? 1 : 0);
+        break;
+      case 'boundaries':
+        if (enabled) this.physics.enableBoundaries();
+        else this.physics.disableBoundaries();
+        break;
+      case 'bounce':
+        this.physics.setAllBounciness(enabled ? 0.8 : 0.1);
+        break;
     }
   }
 
