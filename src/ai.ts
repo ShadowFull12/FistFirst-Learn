@@ -397,7 +397,7 @@ ALWAYS think through the user's actual intent. Never assume "create" when they m
     }
 
     this.isProcessing = true;
-    this.onMessage?.(userMessage, true);
+    // Note: User message is now added by main.ts before calling this method
 
     try {
       if (!this.openai) {

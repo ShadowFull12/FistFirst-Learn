@@ -20,6 +20,8 @@ export interface PhysicsObject {
     sides?: number;
     points?: number;
     customVertices?: { x: number; y: number }[];
+    width?: number;  // Original width for rectangles
+    height?: number; // Original height for rectangles
   };
 }
 
@@ -290,7 +292,8 @@ export class PhysicsEngine {
       body,
       type: 'rectangle',
       color,
-      strokeColor: this.darkenColor(color)
+      strokeColor: this.darkenColor(color),
+      shapeInfo: { width, height } // Store original dimensions
     };
 
     this.objects.set(id, obj);
@@ -1244,9 +1247,9 @@ export class PhysicsEngine {
         const radius = (obj.body as any).circleRadius || 30;
         this.renderer.drawCircle(pos.x, pos.y, radius, obj.color, obj.strokeColor);
       } else if (obj.type === 'rectangle') {
-        const bounds = obj.body.bounds;
-        const width = bounds.max.x - bounds.min.x;
-        const height = bounds.max.y - bounds.min.y;
+        // Use stored original dimensions, not bounds (which change with rotation)
+        const width = obj.shapeInfo?.width || 60;
+        const height = obj.shapeInfo?.height || 60;
         this.renderer.drawRect(pos.x, pos.y, width, height, obj.body.angle, obj.color);
       } else {
         // Polygons, triangles, hexagons, stars, custom shapes - draw using vertices

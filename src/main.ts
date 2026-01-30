@@ -248,7 +248,10 @@ class ARPlayground {
   }
 
   private async handleUserInput(input: string): Promise<void> {
-    // Show thinking animation
+    // First, add the user's message to chat
+    this.addChatMessage(input, true);
+    
+    // Then show thinking animation (appears after user message)
     const thinkingEl = this.showThinkingAnimation();
     
     try {
@@ -270,7 +273,9 @@ class ARPlayground {
         <span class="dot">.</span>
       </span>
     `;
+    // Append at the end (after the user's message)
     this.chatMessages.appendChild(thinkingEl);
+    // Scroll to show the thinking animation
     this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
     return thinkingEl;
   }
