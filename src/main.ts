@@ -146,8 +146,12 @@ class ARPlayground {
 
   async start(): Promise<void> {
     try {
-      // Initialize AI with hardcoded OpenRouter API key
-      const apiKey = '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';
+      // Initialize AI with OpenRouter API key from environment variable
+      const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY || '';
+      if (!apiKey) {
+        console.warn('⚠️ No API key found. Set VITE_OPENROUTER_API_KEY in .env file');
+        console.warn('AI will use offline fallback mode');
+      }
       this.ai.initialize(apiKey);
 
       // Start webcam
