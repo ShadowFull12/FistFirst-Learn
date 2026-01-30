@@ -1,5 +1,6 @@
 /**
  * Voice Manager - Speech recognition and synthesis
+ * Improved version with better browser compatibility and error handling
  */
 
 interface SpeechRecognitionEvent extends Event {
@@ -29,10 +30,14 @@ interface SpeechRecognition extends EventTarget {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
+  maxAlternatives: number;
   onresult: ((event: SpeechRecognitionEvent) => void) | null;
   onerror: ((event: any) => void) | null;
   onstart: (() => void) | null;
   onend: (() => void) | null;
+  onspeechend: (() => void) | null;
+  onaudiostart: (() => void) | null;
+  onaudioend: (() => void) | null;
   start(): void;
   stop(): void;
   abort(): void;
@@ -49,10 +54,14 @@ export class VoiceManager {
   private recognition: SpeechRecognition | null = null;
   private synthesis: SpeechSynthesis;
   private isListening: boolean = false;
+  private shouldRestart: boolean = false;
   private onTranscript: ((text: string, isFinal: boolean) => void) | null = null;
   private onListeningChange: ((listening: boolean) => void) | null = null;
   private voiceBtn: HTMLButtonElement | null = null;
   private statusElement: HTMLElement | null = null;
+  private restartAttempts: number = 0;
+  private maxRestartAttempts: number = 3;
+  private lastTranscript: string = '';
 
   constructor() {
     this.synthesis = window.speechSynthesis;
@@ -60,59 +69,139 @@ export class VoiceManager {
   }
 
   private initRecognition(): void {
+    // Check for browser support
     const SpeechRecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition;
     
     if (!SpeechRecognitionClass) {
-      console.warn('Speech recognition not supported in this browser');
+      console.warn('❌ Speech recognition not supported in this browser');
+      console.warn('Please use Chrome, Edge, or Safari for voice features');
       return;
     }
 
-    this.recognition = new SpeechRecognitionClass();
-    this.recognition.continuous = false;
-    this.recognition.interimResults = true;
-    this.recognition.lang = 'en-US';
+    try {
+      this.recognition = new SpeechRecognitionClass();
+      this.recognition.continuous = true;  // Keep listening
+      this.recognition.interimResults = true;  // Show partial results
+      this.recognition.lang = 'en-US';
+      this.recognition.maxAlternatives = 1;
 
-    this.recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const result = event.results[event.results.length - 1];
-      const transcript = result[0].transcript;
-      const isFinal = result.isFinal;
-      
-      this.updateStatus(isFinal ? `"${transcript}"` : `Hearing: "${transcript}"...`);
-      
-      if (this.onTranscript) {
-        this.onTranscript(transcript, isFinal);
-      }
-    };
+      this.recognition.onresult = (event: SpeechRecognitionEvent) => {
+        // Get the latest result
+        let finalTranscript = '';
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const transcript = result[0].transcript;
+          
+          if (result.isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        
+        // Handle final transcript
+        if (finalTranscript) {
+          console.log('🎤 Final:', finalTranscript);
+          this.updateStatus(`"${finalTranscript}"`);
+          this.lastTranscript = finalTranscript;
+          
+          if (this.onTranscript) {
+            this.onTranscript(finalTranscript, true);
+          }
+        } else if (interimTranscript) {
+          // Show interim results
+          console.log('🎤 Hearing:', interimTranscript);
+          this.updateStatus(`Hearing: "${interimTranscript}"...`);
+          
+          if (this.onTranscript) {
+            this.onTranscript(interimTranscript, false);
+          }
+        }
+      };
 
-    this.recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      this.setListening(false);
-      
-      if (event.error === 'no-speech') {
-        this.updateStatus('No speech detected. Try again.');
-      } else if (event.error === 'not-allowed') {
-        this.updateStatus('Microphone access denied.');
-      } else {
-        this.updateStatus(`Error: ${event.error}`);
-      }
-    };
+      this.recognition.onerror = (event: any) => {
+        console.error('🎤 Speech recognition error:', event.error);
+        
+        switch (event.error) {
+          case 'no-speech':
+            this.updateStatus('No speech detected. Speak louder or closer to mic.');
+            // Don't stop, keep listening
+            break;
+          case 'audio-capture':
+            this.updateStatus('No microphone found. Check your audio settings.');
+            this.stopListening();
+            break;
+          case 'not-allowed':
+            this.updateStatus('Microphone access denied. Please allow microphone access.');
+            this.stopListening();
+            break;
+          case 'network':
+            this.updateStatus('Network error. Check your connection.');
+            // Try to restart
+            if (this.restartAttempts < this.maxRestartAttempts) {
+              setTimeout(() => this.tryRestart(), 1000);
+            }
+            break;
+          case 'aborted':
+            // User aborted, don't show error
+            break;
+          default:
+            this.updateStatus(`Voice error: ${event.error}`);
+            if (this.restartAttempts < this.maxRestartAttempts) {
+              setTimeout(() => this.tryRestart(), 1000);
+            }
+        }
+      };
 
-    this.recognition.onend = () => {
-      if (this.isListening) {
-        // Restart if still supposed to be listening
-        try {
-          this.recognition?.start();
-        } catch (e) {
+      this.recognition.onend = () => {
+        console.log('🎤 Recognition ended, shouldRestart:', this.shouldRestart);
+        
+        if (this.shouldRestart && this.isListening) {
+          // Auto-restart for continuous listening
+          this.tryRestart();
+        } else {
           this.setListening(false);
         }
-      } else {
+      };
+
+      this.recognition.onstart = () => {
+        console.log('🎤 Recognition started');
+        this.restartAttempts = 0;
+        this.updateStatus('🎤 Listening... Speak now!');
+      };
+
+      this.recognition.onaudiostart = () => {
+        console.log('🎤 Audio capture started');
+      };
+
+      console.log('✅ Speech recognition initialized');
+    } catch (error) {
+      console.error('Failed to initialize speech recognition:', error);
+      this.recognition = null;
+    }
+  }
+
+  private tryRestart(): void {
+    if (!this.recognition || !this.shouldRestart) return;
+    
+    this.restartAttempts++;
+    console.log(`🔄 Restarting recognition (attempt ${this.restartAttempts})`);
+    
+    try {
+      setTimeout(() => {
+        if (this.shouldRestart && this.recognition) {
+          this.recognition.start();
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Failed to restart recognition:', error);
+      if (this.restartAttempts >= this.maxRestartAttempts) {
+        this.updateStatus('Voice recognition stopped. Click mic to restart.');
         this.setListening(false);
       }
-    };
-
-    this.recognition.onstart = () => {
-      this.updateStatus('Listening...');
-    };
+    }
   }
 
   setElements(voiceBtn: HTMLButtonElement, statusElement: HTMLElement): void {
@@ -138,38 +227,83 @@ export class VoiceManager {
 
   startListening(): void {
     if (!this.recognition) {
-      this.updateStatus('Speech recognition not supported');
+      this.updateStatus('⚠️ Speech not supported. Use Chrome or Edge.');
+      console.error('Speech recognition not available');
       return;
     }
 
-    if (this.isListening) return;
-
-    try {
-      this.recognition.start();
-      this.setListening(true);
-    } catch (error) {
-      console.error('Failed to start recognition:', error);
-      this.updateStatus('Failed to start voice input');
+    if (this.isListening) {
+      console.log('Already listening');
+      return;
     }
+
+    // Request microphone permission explicitly
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(() => {
+        console.log('🎤 Microphone access granted');
+        this.shouldRestart = true;
+        this.restartAttempts = 0;
+        
+        try {
+          this.recognition!.start();
+          this.setListening(true);
+          console.log('🎤 Started listening');
+        } catch (error: any) {
+          // If already started, that's okay
+          if (error.name === 'InvalidStateError') {
+            console.log('Recognition already active');
+            this.setListening(true);
+          } else {
+            console.error('Failed to start recognition:', error);
+            this.updateStatus('Failed to start voice input. Try again.');
+          }
+        }
+      })
+      .catch((error) => {
+        console.error('Microphone access denied:', error);
+        this.updateStatus('🎤 Please allow microphone access');
+      });
   }
 
   stopListening(): void {
-    if (!this.recognition || !this.isListening) return;
-
+    console.log('🎤 Stopping listening');
+    this.shouldRestart = false;
     this.isListening = false;
-    this.recognition.stop();
+    
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch (e) {
+        // Ignore errors when stopping
+      }
+    }
+    
     this.setListening(false);
+    this.updateStatus('');
   }
 
   private setListening(listening: boolean): void {
     this.isListening = listening;
+    this.shouldRestart = listening;
     
     if (this.voiceBtn) {
       this.voiceBtn.classList.toggle('listening', listening);
+      // Update button visual feedback
+      if (listening) {
+        this.voiceBtn.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+        this.voiceBtn.style.animation = 'pulse 1s ease-in-out infinite';
+      } else {
+        this.voiceBtn.style.background = '';
+        this.voiceBtn.style.animation = '';
+      }
     }
     
     if (!listening) {
-      setTimeout(() => this.updateStatus(''), 2000);
+      setTimeout(() => {
+        if (!this.isListening) {
+          this.updateStatus('');
+        }
+      }, 3000);
     }
     
     this.onListeningChange?.(listening);
