@@ -134,17 +134,17 @@ export class PlayingField {
 
   /**
    * STRICT palm detection - only triggers when:
-   * 1. FRONT of palm facing camera (not back of hand) - verified by Z-depth
+   * 1. BACK of hand facing camera (not front of palm) - verified by Z-depth
    * 2. All 5 fingers fully extended and pointing UP
    * 3. Fingers are STRAIGHT (not bent at any joint)
    * 4. Palm is not tilted sideways
-   * 5. Hand is in "STOP" gesture position
+   * 5. Hand showing back of hand gesture
    * 
    * Uses 3D depth (Z) to distinguish front vs back of palm:
    * - Front of palm: fingertips are CLOSER to camera (lower Z) than palm base
    * - Back of hand: fingertips are FURTHER from camera (higher Z) than palm base
    */
-  private isValidOpenPalm(hand: HandData): boolean {
+  private isValidBackOfPalm(hand: HandData): boolean {
     const landmarks = hand.screenLandmarks;
     
     // Must not be pinching or making a fist
@@ -161,8 +161,8 @@ export class PlayingField {
       return false;
     }
     
-    // ===== CHECK 2: FRONT of palm facing camera (Z-depth check) =====
-    // When viewing FRONT of palm, fingertips are CLOSER to camera than palm/wrist
+    // ===== CHECK 2: BACK of hand facing camera (Z-depth check) =====
+    // When viewing BACK of hand, fingertips are FURTHER from camera than palm/wrist
     // Z values: lower = closer to camera
     const wristZ = wrist.z;
     const palmBaseZ = (
@@ -179,27 +179,28 @@ export class PlayingField {
       landmarks[HAND_LANDMARKS.PINKY_TIP].z
     ) / 4;
     
-    // Front of palm: fingertips should be closer to camera (lower Z) than palm base
-    // If fingertipZ > palmBaseZ, we're seeing the BACK of the hand
-    const isFrontOfPalm = fingertipZ < palmBaseZ + 10; // Small tolerance
-    if (!isFrontOfPalm) {
+    // Back of hand: fingertips should be FURTHER from camera (higher Z) than palm base
+    // If fingertipZ < palmBaseZ, we're seeing the FRONT of the palm (wrong!)
+    const isBackOfHand = fingertipZ > palmBaseZ - 10; // Small tolerance
+    if (!isBackOfHand) {
       return false;
     }
     
-    // ===== CHECK 3: Thumb position confirms front of palm =====
-    // On FRONT of RIGHT palm: thumb is on LEFT side (lower X in mirrored view)
-    // On FRONT of LEFT palm: thumb is on RIGHT side (higher X in mirrored view)
+    // ===== CHECK 3: Thumb position confirms back of hand =====
+    // On BACK of RIGHT hand: thumb is on RIGHT side (in mirrored view)
+    // On BACK of LEFT hand: thumb is on LEFT side (in mirrored view)
     const thumbTip = landmarks[HAND_LANDMARKS.THUMB_TIP];
     const pinkyMcp = landmarks[HAND_LANDMARKS.PINKY_MCP];
     const indexMcp = landmarks[HAND_LANDMARKS.INDEX_MCP];
     
-    // Check thumb is on the correct side for front of palm
+    // For back of hand, thumb position is opposite of front
     const isRightHand = hand.handedness === 'Right';
-    // In mirrored webcam: Right hand's thumb should be to the RIGHT of pinky
-    // (appears opposite because of mirror)
+    // In mirrored webcam with back of hand showing:
+    // Right hand's thumb appears on the LEFT of pinky
+    // Left hand's thumb appears on the RIGHT of pinky
     const thumbOnCorrectSide = isRightHand 
-      ? thumbTip.x > pinkyMcp.x  // Right hand front: thumb appears on right in mirror
-      : thumbTip.x < pinkyMcp.x; // Left hand front: thumb appears on left in mirror
+      ? thumbTip.x < pinkyMcp.x  // Right hand back: thumb appears on left in mirror
+      : thumbTip.x > pinkyMcp.x; // Left hand back: thumb appears on right in mirror
     
     if (!thumbOnCorrectSide) {
       return false;
@@ -296,7 +297,7 @@ export class PlayingField {
       return false;
     }
     
-    // All checks passed - this is a valid front-facing open palm!
+    // All checks passed - this is a valid back-of-hand gesture!
     return true;
   }
 
@@ -317,7 +318,7 @@ export class PlayingField {
     }
 
     const palmPos = hand.palmCenter;
-    const isValidPalm = this.isValidOpenPalm(hand);
+    const isValidPalm = this.isValidBackOfPalm(hand);
     const isFist = hand.isFist;
     
     // State machine for field manipulation (no resizing - only move)
@@ -422,20 +423,41 @@ export class PlayingField {
       ctx.lineCap = 'round';
       ctx.stroke();
       
-      // Progress text
+      // Progress text - fix mirrored text by temporarily resetting transform
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset to normal (un-mirror)
+      const textX = this.screenWidth - this.lastPalmPosition.x; // Flip X for correct position
       ctx.fillStyle = '#22c55e';
-      ctx.font = 'bold 16px system-ui';
+      ctx.font = 'bold 18px system-ui';
       ctx.textAlign = 'center';
-      ctx.fillText(`${Math.round(this.moveProgress * 100)}%`, this.lastPalmPosition.x, this.lastPalmPosition.y + 70);
-      ctx.fillText('Hold palm facing camera', this.lastPalmPosition.x, this.lastPalmPosition.y + 90);
+      
+      // Draw background for better visibility
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(textX - 120, this.lastPalmPosition.y + 55, 240, 50);
+      
+      ctx.fillStyle = '#22c55e';
+      ctx.fillText(`${Math.round(this.moveProgress * 100)}%`, textX, this.lastPalmPosition.y + 75);
+      ctx.font = 'bold 14px system-ui';
+      ctx.fillText('Show back of hand to move field', textX, this.lastPalmPosition.y + 95);
+      ctx.restore();
     }
     
     // Mode indicator
     if (this.mode === 'moving') {
-      ctx.fillStyle = 'rgba(34, 197, 94, 0.9)';
+      // Fix mirrored text
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset to normal
+      const centerX = this.screenWidth - (b.x + b.width / 2); // Flip X
+      
+      // Draw background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+      ctx.fillRect(centerX - 160, b.y - 35, 320, 30);
+      
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.95)';
       ctx.font = 'bold 18px system-ui';
       ctx.textAlign = 'center';
-      ctx.fillText('✋ MOVING - Close fist to lock', b.x + b.width / 2, b.y - 15);
+      ctx.fillText('✋ MOVING - Close fist to lock', centerX, b.y - 15);
+      ctx.restore();
     }
     
     ctx.restore();
