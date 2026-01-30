@@ -237,6 +237,8 @@ You MUST respond with a JSON block containing your REASONING and ACTIONS:
 - scaleAll: {type?, color?, scale}
 - setColorAll: {type?, color, newColor}
 - removeAll: {type?, color?}
+- removeByType: {type} - remove all objects of a type (circle, triangle, rectangle, star, hexagon)
+- removeByColor: {color} - remove all objects of a color
 
 ### Physics:
 - setGravity: {x?, y?, direction?, strength?}
@@ -248,8 +250,46 @@ You MUST respond with a JSON block containing your REASONING and ACTIONS:
 ### Query (for questions - NEVER create when querying):
 - queryScene: {} - get overall scene info
 - getObjectInfo: {objectId} - get details about specific object
+- countByType: {type} - count objects of specific type
+- countByColor: {color} - count objects of specific color
 
 ## EXAMPLES:
+
+User: "Remove the triangle"
+Scene: 1 triangle exists with id "poly_1"
+\`\`\`json
+{
+  "thinking": "User wants to REMOVE the triangle. There is 1 triangle (poly_1). I should delete it.",
+  "intent": "delete",
+  "targetObjects": ["poly_1"],
+  "actions": [{"action": "removeObject", "params": {"objectId": "poly_1"}}],
+  "response": "Removed the triangle!"
+}
+\`\`\`
+
+User: "How many triangles are there?"
+Scene: 2 triangles exist
+\`\`\`json
+{
+  "thinking": "User is asking a QUESTION about counting triangles. I should count triangles in the scene, NOT create anything.",
+  "intent": "query",
+  "targetObjects": [],
+  "actions": [{"action": "countByType", "params": {"type": "triangle"}}],
+  "response": "There are 2 triangles."
+}
+\`\`\`
+
+User: "Delete all the red objects"
+Scene: 3 red objects exist
+\`\`\`json
+{
+  "thinking": "User wants to DELETE all red objects. This is a batch delete operation.",
+  "intent": "delete",
+  "targetObjects": "all",
+  "actions": [{"action": "removeByColor", "params": {"color": "red"}}],
+  "response": "Removed all red objects!"
+}
+\`\`\`
 
 User: "Make the circle bigger"
 Scene: 1 circle exists with id "ball_1"
@@ -733,6 +773,42 @@ ALWAYS think through the user's actual intent. Never assume "create" when they m
           return { success: false, message: 'No object found' };
         }
 
+        case 'countByType': {
+          const info = this.physics.getObjectsInfo();
+          const count = info.byType[params.type] || 0;
+          return { success: true, message: `Count: ${count}`, data: { type: params.type, count } };
+        }
+
+        case 'countByColor': {
+          const info = this.physics.getObjectsInfo();
+          const count = info.byColor[params.color] || 0;
+          return { success: true, message: `Count: ${count}`, data: { color: params.color, count } };
+        }
+
+        case 'removeByType': {
+          const objects = this.physics.getObjects();
+          let count = 0;
+          for (const obj of objects) {
+            if (obj.type === params.type) {
+              this.physics.removeObject(obj.id);
+              count++;
+            }
+          }
+          return { success: true, message: `Removed ${count} ${params.type}s` };
+        }
+
+        case 'removeByColor': {
+          const objects = this.physics.getObjects();
+          let count = 0;
+          for (const obj of objects) {
+            if (this.getColorName(obj.color) === params.color) {
+              this.physics.removeObject(obj.id);
+              count++;
+            }
+          }
+          return { success: true, message: `Removed ${count} ${params.color} objects` };
+        }
+
         // === ADVANCED PHYSICS PROPERTIES ===
         case 'setMass': {
           const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
@@ -840,12 +916,129 @@ ALWAYS think through the user's actual intent. Never assume "create" when they m
     const lower = input.toLowerCase();
     const info = this.physics.getObjectsInfo();
     
-    // FIRST: Check if this is a QUESTION (never create for questions!)
+    // FIRST: Check for DELETE/REMOVE commands (high priority)
+    const isDelete = lower.includes('delete') || lower.includes('remove') || 
+                     lower.includes('destroy') || lower.includes('get rid of') ||
+                     lower.includes('clear');
+    
+    if (isDelete) {
+      // Check if removing all
+      if (lower.includes('all') || lower.includes('everything') || lower.includes('clear')) {
+        // Check for specific type
+        if (lower.includes('triangle')) {
+          const triangles = info.objects.filter(o => o.type === 'triangle');
+          triangles.forEach(o => this.physics.removeObject(o.id));
+          return `Removed ${triangles.length} triangle${triangles.length === 1 ? '' : 's'}!`;
+        }
+        if (lower.includes('circle') || lower.includes('ball')) {
+          const circles = info.objects.filter(o => o.type === 'circle');
+          circles.forEach(o => this.physics.removeObject(o.id));
+          return `Removed ${circles.length} ball${circles.length === 1 ? '' : 's'}!`;
+        }
+        if (lower.includes('rectangle') || lower.includes('square')) {
+          const rects = info.objects.filter(o => o.type === 'rectangle');
+          rects.forEach(o => this.physics.removeObject(o.id));
+          return `Removed ${rects.length} rectangle${rects.length === 1 ? '' : 's'}!`;
+        }
+        if (lower.includes('star')) {
+          const stars = info.objects.filter(o => o.type === 'star');
+          stars.forEach(o => this.physics.removeObject(o.id));
+          return `Removed ${stars.length} star${stars.length === 1 ? '' : 's'}!`;
+        }
+        if (lower.includes('hexagon')) {
+          const hexs = info.objects.filter(o => o.type === 'hexagon');
+          hexs.forEach(o => this.physics.removeObject(o.id));
+          return `Removed ${hexs.length} hexagon${hexs.length === 1 ? '' : 's'}!`;
+        }
+        // Remove by color
+        const color = this.extractColor(lower);
+        if (color) {
+          const colored = info.objects.filter(o => o.color === color);
+          colored.forEach(o => this.physics.removeObject(o.id));
+          return `Removed ${colored.length} ${color} object${colored.length === 1 ? '' : 's'}!`;
+        }
+        // Remove everything
+        this.physics.clearAllObjects();
+        return 'Cleared all objects!';
+      }
+      
+      // Remove specific type (the triangle, a triangle)
+      if (lower.includes('triangle')) {
+        const triangle = info.objects.find(o => o.type === 'triangle');
+        if (triangle) {
+          this.physics.removeObject(triangle.id);
+          return 'Removed the triangle!';
+        }
+        return 'No triangle found to remove.';
+      }
+      if (lower.includes('circle') || lower.includes('ball')) {
+        const circle = info.objects.find(o => o.type === 'circle');
+        if (circle) {
+          this.physics.removeObject(circle.id);
+          return 'Removed the ball!';
+        }
+        return 'No ball found to remove.';
+      }
+      if (lower.includes('rectangle') || lower.includes('square')) {
+        const rect = info.objects.find(o => o.type === 'rectangle');
+        if (rect) {
+          this.physics.removeObject(rect.id);
+          return 'Removed the rectangle!';
+        }
+        return 'No rectangle found to remove.';
+      }
+      if (lower.includes('star')) {
+        const star = info.objects.find(o => o.type === 'star');
+        if (star) {
+          this.physics.removeObject(star.id);
+          return 'Removed the star!';
+        }
+        return 'No star found to remove.';
+      }
+      if (lower.includes('hexagon')) {
+        const hex = info.objects.find(o => o.type === 'hexagon');
+        if (hex) {
+          this.physics.removeObject(hex.id);
+          return 'Removed the hexagon!';
+        }
+        return 'No hexagon found to remove.';
+      }
+      
+      // Remove by color
+      const color = this.extractColor(lower);
+      if (color) {
+        const colored = info.objects.find(o => o.color === color);
+        if (colored) {
+          this.physics.removeObject(colored.id);
+          return `Removed the ${color} object!`;
+        }
+        return `No ${color} object found.`;
+      }
+      
+      // Remove pointed object
+      if (this.selectedObjectId) {
+        this.physics.removeObject(this.selectedObjectId);
+        this.selectedObjectId = null;
+        return 'Removed it!';
+      }
+      
+      // Remove last mentioned
+      if (this.lastMentionedObjects.length > 0) {
+        const id = this.lastMentionedObjects[0];
+        this.physics.removeObject(id);
+        this.lastMentionedObjects = [];
+        return 'Removed it!';
+      }
+      
+      return 'I don\'t know which object to remove. Try saying "remove the triangle" or point at one!';
+    }
+    
+    // SECOND: Check if this is a QUESTION (never create for questions!)
     const isQuestion = lower.includes('what') || lower.includes('how many') || 
                        lower.includes('which') || lower.includes('where') ||
                        lower.includes('is this') || lower.includes('is it') ||
                        lower.includes('is the') || lower.includes('color of') ||
-                       lower.endsWith('?');
+                       lower.includes('count') || lower.endsWith('?');
     
     if (isQuestion) {
       // Find target object for questions about "this"
@@ -867,11 +1060,37 @@ ALWAYS think through the user's actual intent. Never assume "create" when they m
         return 'I can\'t see which object you mean. Try pointing at it!';
       }
       
-      if (lower.includes('how many')) {
-        const color = this.extractColor(lower);
-        if (color && info.byColor[color]) {
-          return `There ${info.byColor[color] === 1 ? 'is' : 'are'} ${info.byColor[color]} ${color} object${info.byColor[color] === 1 ? '' : 's'}.`;
+      if (lower.includes('how many') || lower.includes('count')) {
+        // Check for specific type first
+        if (lower.includes('triangle')) {
+          const count = info.byType['triangle'] || 0;
+          return `There ${count === 1 ? 'is' : 'are'} ${count} triangle${count === 1 ? '' : 's'}.`;
         }
+        if (lower.includes('circle') || lower.includes('ball')) {
+          const count = info.byType['circle'] || 0;
+          return `There ${count === 1 ? 'is' : 'are'} ${count} ball${count === 1 ? '' : 's'}.`;
+        }
+        if (lower.includes('rectangle') || lower.includes('square')) {
+          const count = info.byType['rectangle'] || 0;
+          return `There ${count === 1 ? 'is' : 'are'} ${count} rectangle${count === 1 ? '' : 's'}.`;
+        }
+        if (lower.includes('star')) {
+          const count = info.byType['star'] || 0;
+          return `There ${count === 1 ? 'is' : 'are'} ${count} star${count === 1 ? '' : 's'}.`;
+        }
+        if (lower.includes('hexagon')) {
+          const count = info.byType['hexagon'] || 0;
+          return `There ${count === 1 ? 'is' : 'are'} ${count} hexagon${count === 1 ? '' : 's'}.`;
+        }
+        
+        // Check for color
+        const color = this.extractColor(lower);
+        if (color && info.byColor[color] !== undefined) {
+          const count = info.byColor[color];
+          return `There ${count === 1 ? 'is' : 'are'} ${count} ${color} object${count === 1 ? '' : 's'}.`;
+        }
+        
+        // General count
         return `There ${info.total === 1 ? 'is' : 'are'} ${info.total} object${info.total === 1 ? '' : 's'} on screen.`;
       }
       
@@ -886,7 +1105,7 @@ ALWAYS think through the user's actual intent. Never assume "create" when they m
       return 'I\'m not sure what you\'re asking about. Try pointing at an object!';
     }
     
-    // Detect modification intent (including "make this ball red")
+    // THIRD: Detect modification intent (including "make this ball red")
     const isModification = lower.includes('make it') || lower.includes('make the') || 
                           lower.includes('make this') || lower.includes('change') || 
                           lower.includes('bigger') || lower.includes('smaller') || 
