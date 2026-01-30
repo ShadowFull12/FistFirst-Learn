@@ -142,6 +142,12 @@ class ARPlayground {
     this.playingField.setOnBoundsChanged((bounds) => {
       this.physics.setPlayingFieldBounds(bounds);
     });
+
+    // Boundaries change callback - show/hide playing field visual
+    this.physics.setOnBoundariesChanged((enabled) => {
+      this.playingField.setVisible(enabled);
+      console.log(`Playing field ${enabled ? 'shown' : 'hidden'} (boundaries ${enabled ? 'enabled' : 'disabled'})`);
+    });
   }
 
   async start(): Promise<void> {

@@ -63,6 +63,7 @@ export class PhysicsEngine {
   private lastHandPositions: Map<string, { x: number; y: number }> = new Map();
   private comfortZoneHeight: number = 0.75; // Balls stay in top 75% of screen
   private playingFieldBounds: PlayingFieldBounds | null = null; // Custom playing field
+  private onBoundariesChangedCallback: ((enabled: boolean) => void) | null = null;
 
   constructor(renderer: CanvasRenderer) {
     this.renderer = renderer;
@@ -168,6 +169,9 @@ export class PhysicsEngine {
     World.add(this.world, this.boundaries);
     this.config.boundariesEnabled = true;
     console.log(`Boundaries enabled: ${Math.round(left)},${Math.round(top)} to ${Math.round(right)},${Math.round(bottom)}`);
+    
+    // Notify callback
+    this.onBoundariesChangedCallback?.(true);
   }
 
   // Set playing field bounds (called when field changes)
@@ -213,6 +217,9 @@ export class PhysicsEngine {
     World.remove(this.world, this.boundaries);
     this.boundaries = [];
     this.config.boundariesEnabled = false;
+    
+    // Notify callback
+    this.onBoundariesChangedCallback?.(false);
   }
 
   // Update boundaries on resize
@@ -230,6 +237,11 @@ export class PhysicsEngine {
 
   areBoundariesEnabled(): boolean {
     return this.config.boundariesEnabled;
+  }
+
+  // Set callback for when boundaries are enabled/disabled
+  setOnBoundariesChanged(callback: (enabled: boolean) => void): void {
+    this.onBoundariesChangedCallback = callback;
   }
 
   // Object creation
@@ -1063,6 +1075,32 @@ export class PhysicsEngine {
     // Enforce boundaries and clamp velocities
     if (this.config.boundariesEnabled) {
       this.enforceObjectBounds();
+    } else {
+      // Remove objects that fall out of screen when boundaries are disabled
+      this.removeOutOfBoundsObjects();
+    }
+  }
+  
+  // Remove objects that are off-screen (when boundaries are disabled)
+  private removeOutOfBoundsObjects(): void {
+    const margin = 200; // Extra margin before removal
+    const minX = -margin;
+    const maxX = this.renderer.width + margin;
+    const minY = -margin;
+    const maxY = this.renderer.height + margin;
+    
+    const toRemove: string[] = [];
+    
+    this.objects.forEach((obj, id) => {
+      const pos = obj.body.position;
+      if (pos.x < minX || pos.x > maxX || pos.y < minY || pos.y > maxY) {
+        toRemove.push(id);
+      }
+    });
+    
+    for (const id of toRemove) {
+      console.log(`🗑️ Removing out-of-bounds object: ${id}`);
+      this.removeObject(id);
     }
   }
   
