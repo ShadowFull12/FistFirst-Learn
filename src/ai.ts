@@ -6,12 +6,12 @@ import { HandData } from './handTracking';
 // OpenRouter configuration - using intelligent FREE models
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
-// Smart free models - trying in order of intelligence
+// Primary model: DeepSeek R1 - excellent reasoning model
 const OPENROUTER_MODELS = [
-  'meta-llama/llama-3.3-70b-instruct:free',  // Best free model - very intelligent
-  'google/gemma-3-27b-it:free',               // Google's best free model
-  'deepseek/deepseek-r1-0528:free',           // DeepSeek R1 reasoning model
-  'z-ai/glm-4.5-air:free'                     // GLM 4.5 Air fallback
+  'deepseek/deepseek-r1-0528:free',           // Primary - DeepSeek R1 reasoning model
+  'meta-llama/llama-3.3-70b-instruct:free',   // Fallback - Llama 3.3 70B
+  'google/gemma-3-27b-it:free',               // Fallback - Google's Gemma 3
+  'z-ai/glm-4.5-air:free'                     // Fallback - GLM 4.5 Air
 ];
 
 let currentModelIndex = 0;
