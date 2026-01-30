@@ -3,9 +3,18 @@ import { PhysicsEngine, PhysicsObject } from './physics';
 import { UIManager } from './uiManager';
 import { HandData } from './handTracking';
 
-// OpenRouter configuration - using a smarter model
+// OpenRouter configuration - using intelligent FREE models
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-const OPENROUTER_MODEL = 'google/gemini-2.0-flash-001'; // Much smarter model for real conversations
+
+// Smart free models - trying in order of intelligence
+const OPENROUTER_MODELS = [
+  'meta-llama/llama-3.3-70b-instruct:free',  // Best free model - very intelligent
+  'google/gemma-3-27b-it:free',               // Google's best free model
+  'deepseek/deepseek-r1-0528:free',           // DeepSeek R1 reasoning model
+  'z-ai/glm-4.5-air:free'                     // GLM 4.5 Air fallback
+];
+
+let currentModelIndex = 0;
 
 // Color palette
 const COLORS: Record<string, string> = {
@@ -61,7 +70,7 @@ export class AIAssistant {
           'X-Title': 'FistFirst Learn'
         }
       });
-      console.log('✓ AI initialized with Gemini 2.0 Flash');
+      console.log('✓ AI initialized with Llama 3.3 70B (free)');
       return true;
     } catch (error) {
       console.error('Failed to initialize AI:', error);
@@ -337,14 +346,44 @@ Remember: You're a smart AI assistant, not a command parser. Think, reason, and 
       
       console.log('🧠 Sending to AI:', fullMessage.substring(0, 800) + '...');
 
-      const response = await this.openai.chat.completions.create({
-        model: OPENROUTER_MODEL,
-        messages: messages,
-        max_tokens: 1500,
-        temperature: 0.7, // Higher for more natural conversation
-      });
+      // Try models in order until one works
+      let aiResponse = '';
+      let lastError: any = null;
+      
+      for (let i = 0; i < OPENROUTER_MODELS.length; i++) {
+        const modelToUse = OPENROUTER_MODELS[(currentModelIndex + i) % OPENROUTER_MODELS.length];
+        console.log(`🔄 Trying model: ${modelToUse}`);
+        
+        try {
+          const response = await this.openai.chat.completions.create({
+            model: modelToUse,
+            messages: messages,
+            max_tokens: 1000,
+            temperature: 0.7,
+          });
 
-      const aiResponse = response.choices[0].message.content || '';
+          aiResponse = response.choices[0].message.content || '';
+          
+          if (aiResponse && aiResponse.length > 0) {
+            console.log(`✅ Success with ${modelToUse}`);
+            currentModelIndex = (currentModelIndex + i) % OPENROUTER_MODELS.length; // Remember working model
+            break;
+          }
+        } catch (modelError: any) {
+          console.warn(`❌ Model ${modelToUse} failed:`, modelError.message || modelError);
+          lastError = modelError;
+          // Continue to next model
+        }
+      }
+      
+      // If all models failed
+      if (!aiResponse) {
+        console.error('All models failed, using fallback');
+        const fallback = this.offlineFallback(userMessage);
+        this.onMessage?.(fallback, false);
+        return fallback;
+      }
+      
       console.log('🤖 AI response:', aiResponse);
       
       // Extract any command blocks and execute them
