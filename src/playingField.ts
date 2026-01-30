@@ -121,6 +121,9 @@ export class PlayingField {
   }
 
   setVisible(visible: boolean): void {
+    // Guard: don't do anything if visibility isn't changing
+    if (this.isVisible === visible) return;
+    
     this.isVisible = visible;
     if (visible) {
       // Reset to default when made visible again

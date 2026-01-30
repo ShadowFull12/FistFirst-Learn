@@ -121,7 +121,7 @@ export class PhysicsEngine {
   }
 
   // Boundary walls - uses playing field if set, otherwise comfort zone
-  enableBoundaries(): void {
+  enableBoundaries(skipCallback: boolean = false): void {
     if (this.config.boundariesEnabled) return;
     
     const thickness = 50;
@@ -170,8 +170,10 @@ export class PhysicsEngine {
     this.config.boundariesEnabled = true;
     console.log(`Boundaries enabled: ${Math.round(left)},${Math.round(top)} to ${Math.round(right)},${Math.round(bottom)}`);
     
-    // Notify callback
-    this.onBoundariesChangedCallback?.(true);
+    // Notify callback (unless skipped during internal updates)
+    if (!skipCallback) {
+      this.onBoundariesChangedCallback?.(true);
+    }
   }
 
   // Set playing field bounds (called when field changes)
@@ -231,8 +233,8 @@ export class PhysicsEngine {
     this.boundaries = [];
     this.config.boundariesEnabled = false;
     
-    // Re-enable with new dimensions
-    this.enableBoundaries();
+    // Re-enable with new dimensions (skip callback to avoid infinite loop)
+    this.enableBoundaries(true);
   }
 
   areBoundariesEnabled(): boolean {
