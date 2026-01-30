@@ -118,12 +118,19 @@ export class AIAssistant {
       context += `  - Play area: ${Math.round(bounds.width)}x${Math.round(bounds.height)}\n`;
     }
     
-    // User context
+    // User context - MAKE POINTING VERY PROMINENT
     if (this.selectedObjectId) {
       const obj = this.physics.getObjectById(this.selectedObjectId);
       if (obj) {
-        context += `\nUser is pointing at: [${obj.id}] ${obj.type} (${this.getColorName(obj.color)})\n`;
+        const physicsInfo = this.physics.getObjectPhysicsInfo(this.selectedObjectId);
+        context += `\n*** USER IS POINTING AT: [${obj.id}] ${obj.type} (${this.getColorName(obj.color)}) ***\n`;
+        context += `    This is the "this"/"that"/"it" object!\n`;
+        if (physicsInfo) {
+          context += `    Physics: mass=${physicsInfo.mass.toFixed(3)}, bounce=${physicsInfo.bounciness.toFixed(2)}\n`;
+        }
       }
+    } else if (this.lastMentionedObjects.length > 0) {
+      context += `\nNo object pointed at. Last mentioned: ${this.lastMentionedObjects.join(', ')}\n`;
     }
     
     if (this.lastPointingPosition) {
@@ -151,23 +158,30 @@ export class AIAssistant {
   private buildIntelligentPrompt(): string {
     return `You are an intelligent AI assistant for FistFirst Learn, an AR physics sandbox. You must THINK about what the user actually wants before acting.
 
-## CRITICAL RULES FOR UNDERSTANDING USER INTENT:
+## ABSOLUTE RULES - NEVER BREAK THESE:
 
-1. **MODIFICATION vs CREATION**: 
+1. **QUESTIONS ARE NOT COMMANDS**: 
+   - "What color is this?" = ANSWER the question, do NOT create anything
+   - "What is this?" = DESCRIBE the object, do NOT create anything
+   - "How many balls?" = COUNT and answer, do NOT create anything
+   - ANY sentence with "what", "how", "which", "where", "is this", "is it" = QUERY, NOT creation
+
+2. **"THIS" and "THAT" ALWAYS REFER TO EXISTING OBJECTS**:
+   - "Make THIS ball red" = Change the pointed/selected object's color
+   - "What is THIS?" = Describe the pointed/selected object
+   - "THIS" NEVER means "create a new one"
+   - If user says "this ball" and is pointing at something, USE the pointed object ID
+
+3. **MODIFICATION vs CREATION**: 
    - "Make it bigger" = MODIFY existing object, NOT create new
-   - "Make the circle bigger" = Find THE circle and scale it up
-   - "Change it to red" = Modify existing object's color
-   - "Create a circle" = Actually CREATE a new object
+   - "Make the circle red" = Find THE circle and change its color
+   - "can you make this ball red" = MODIFY the existing ball to red, NOT create
+   - "Create a circle" or "Add a ball" = Actually CREATE a new object
+   - Only CREATE when user explicitly says: "create", "add", "spawn", "make me a new"
 
-2. **REFERENCES** - When user says:
-   - "it", "that", "this" = The object they're pointing at OR the last mentioned/created object
-   - "the circle", "the ball" = Find that specific object in the scene
-   - "all balls", "every circle" = ALL objects of that type
-
-3. **CONTEXT MATTERS**:
-   - If there's only 1 circle and user says "make the circle bigger" = scale THAT circle
-   - If user just created something and says "make it red" = modify the JUST CREATED object
-   - If user points at something and says "delete it" = delete the POINTED object
+4. **POINTING CONTEXT IS CRITICAL**:
+   - If "User is pointing at: [ball_1]" appears in context, then "this", "it", "that" = ball_1
+   - The selected object takes priority over last mentioned
 
 ## RESPONSE FORMAT:
 
@@ -231,8 +245,9 @@ You MUST respond with a JSON block containing your REASONING and ACTIONS:
 - enableMagnetic: {enable}
 - recallBalls: {}
 
-### Query (just return info):
-- queryScene: {}
+### Query (for questions - NEVER create when querying):
+- queryScene: {} - get overall scene info
+- getObjectInfo: {objectId} - get details about specific object
 
 ## EXAMPLES:
 
@@ -279,6 +294,30 @@ User: "How many red objects?"
   "targetObjects": [],
   "actions": [{"action": "queryScene", "params": {}}],
   "response": "There are X red objects on screen."
+}
+\`\`\`
+
+User: "What is the color of this ball?"
+Context: User pointing at ball_1 which is blue
+\`\`\`json
+{
+  "thinking": "User is asking a QUESTION about 'this ball'. 'This' refers to the pointed object (ball_1). I should ANSWER the question, NOT create anything.",
+  "intent": "query",
+  "targetObjects": ["ball_1"],
+  "actions": [{"action": "getObjectInfo", "params": {"objectId": "ball_1"}}],
+  "response": "This ball is blue!"
+}
+\`\`\`
+
+User: "Can you make this ball red?"
+Context: User pointing at ball_2 which is currently green
+\`\`\`json
+{
+  "thinking": "User says 'this ball' and is pointing at ball_2. They want to CHANGE it to red, not create a new ball. This is a modification request.",
+  "intent": "modify",
+  "targetObjects": ["ball_2"],
+  "actions": [{"action": "setColor", "params": {"objectId": "ball_2", "color": "red"}}],
+  "response": "Done! I changed this ball to red."
 }
 \`\`\`
 
@@ -673,6 +712,27 @@ ALWAYS think through the user's actual intent. Never assume "create" when they m
           return { success: true, message: 'Scene queried', data: this.physics.getObjectsInfo() };
         }
 
+        case 'getObjectInfo': {
+          const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
+          if (objId) {
+            const obj = this.physics.getObjectById(objId);
+            const physicsInfo = this.physics.getObjectPhysicsInfo(objId);
+            if (obj && physicsInfo) {
+              return { 
+                success: true, 
+                message: `Object info retrieved`,
+                data: {
+                  id: objId,
+                  type: obj.type,
+                  color: this.getColorName(obj.color),
+                  ...physicsInfo
+                }
+              };
+            }
+          }
+          return { success: false, message: 'No object found' };
+        }
+
         // === ADVANCED PHYSICS PROPERTIES ===
         case 'setMass': {
           const objId = params.objectId || this.selectedObjectId || this.lastMentionedObjects[0];
@@ -780,11 +840,58 @@ ALWAYS think through the user's actual intent. Never assume "create" when they m
     const lower = input.toLowerCase();
     const info = this.physics.getObjectsInfo();
     
-    // Detect modification intent
+    // FIRST: Check if this is a QUESTION (never create for questions!)
+    const isQuestion = lower.includes('what') || lower.includes('how many') || 
+                       lower.includes('which') || lower.includes('where') ||
+                       lower.includes('is this') || lower.includes('is it') ||
+                       lower.includes('is the') || lower.includes('color of') ||
+                       lower.endsWith('?');
+    
+    if (isQuestion) {
+      // Find target object for questions about "this"
+      let targetId = this.selectedObjectId || this.lastMentionedObjects[0];
+      
+      // If asking about "this ball/circle" etc, find it
+      if (!targetId) {
+        if (lower.includes('ball') || lower.includes('circle')) {
+          const obj = info.objects.find(o => o.type === 'circle');
+          if (obj) targetId = obj.id;
+        }
+      }
+      
+      if (lower.includes('color')) {
+        if (targetId) {
+          const obj = info.objects.find(o => o.id === targetId);
+          if (obj) return `This ${obj.type} is ${obj.color}!`;
+        }
+        return 'I can\'t see which object you mean. Try pointing at it!';
+      }
+      
+      if (lower.includes('how many')) {
+        const color = this.extractColor(lower);
+        if (color && info.byColor[color]) {
+          return `There ${info.byColor[color] === 1 ? 'is' : 'are'} ${info.byColor[color]} ${color} object${info.byColor[color] === 1 ? '' : 's'}.`;
+        }
+        return `There ${info.total === 1 ? 'is' : 'are'} ${info.total} object${info.total === 1 ? '' : 's'} on screen.`;
+      }
+      
+      if (lower.includes('what is this') || lower.includes('what\'s this')) {
+        if (targetId) {
+          const obj = info.objects.find(o => o.id === targetId);
+          if (obj) return `This is a ${obj.color} ${obj.type}.`;
+        }
+        return 'I can\'t see what you\'re pointing at. Try pointing at an object!';
+      }
+      
+      return 'I\'m not sure what you\'re asking about. Try pointing at an object!';
+    }
+    
+    // Detect modification intent (including "make this ball red")
     const isModification = lower.includes('make it') || lower.includes('make the') || 
-                          lower.includes('change') || lower.includes('bigger') || 
-                          lower.includes('smaller') || lower.includes('larger') ||
-                          (lower.includes('it') && !lower.includes('create'));
+                          lower.includes('make this') || lower.includes('change') || 
+                          lower.includes('bigger') || lower.includes('smaller') || 
+                          lower.includes('larger') || lower.includes('can you make') ||
+                          (lower.includes('this') && !lower.includes('create'));
     
     if (isModification) {
       // Find target object
@@ -872,23 +979,34 @@ ALWAYS think through the user's actual intent. Never assume "create" when they m
       }
     }
     
-    // Creation intent
-    const shapes = ['ball', 'circle', 'triangle', 'hexagon', 'star', 'rectangle', 'square'];
-    for (const shape of shapes) {
-      if (lower.includes(shape)) {
-        const count = this.extractNumber(lower);
-        const color = this.extractColor(lower);
-        
-        if (count && count > 1) {
-          this.executeAction('createMultiple', { count, shape, color: color || 'random' });
-          return `Created ${count} ${color || 'colorful'} ${shape}s!`;
-        } else {
-          const actionName = shape === 'ball' || shape === 'circle' ? 'createBall' :
-                            shape === 'triangle' ? 'createTriangle' :
-                            shape === 'hexagon' ? 'createHexagon' :
-                            shape === 'star' ? 'createStar' : 'createRectangle';
-          this.executeAction(actionName, { color: color || 'blue' });
-          return `Created a ${color || 'blue'} ${shape}!`;
+    // Only consider creation if user explicitly wants to create (not "this ball", "the ball", etc.)
+    const wantsCreation = lower.includes('create') || lower.includes('add') || 
+                          lower.includes('spawn') || lower.includes('make a') ||
+                          lower.includes('make me a') || lower.includes('give me');
+    
+    // Check for shape words but ONLY if not referring to existing object
+    const refersToExisting = lower.includes('this') || lower.includes('that') || 
+                             lower.includes('the ') || lower.includes('it');
+    
+    if (!refersToExisting || wantsCreation) {
+      // Creation intent
+      const shapes = ['ball', 'circle', 'triangle', 'hexagon', 'star', 'rectangle', 'square'];
+      for (const shape of shapes) {
+        if (lower.includes(shape) && (wantsCreation || (!refersToExisting && !isQuestion))) {
+          const count = this.extractNumber(lower);
+          const color = this.extractColor(lower);
+          
+          if (count && count > 1) {
+            this.executeAction('createMultiple', { count, shape, color: color || 'random' });
+            return `Created ${count} ${color || 'colorful'} ${shape}s!`;
+          } else {
+            const actionName = shape === 'ball' || shape === 'circle' ? 'createBall' :
+                              shape === 'triangle' ? 'createTriangle' :
+                              shape === 'hexagon' ? 'createHexagon' :
+                              shape === 'star' ? 'createStar' : 'createRectangle';
+            this.executeAction(actionName, { color: color || 'blue' });
+            return `Created a ${color || 'blue'} ${shape}!`;
+          }
         }
       }
     }
