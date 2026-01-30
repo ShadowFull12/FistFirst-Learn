@@ -4,9 +4,9 @@ import { HandData, HAND_LANDMARKS } from './handTracking';
  * Playing Field - A moveable game boundary
  * 
  * Controls:
- * - Show open palm (front facing, all fingers up) for 3 seconds to enter move mode
- * - Move palm to reposition the field
- * - Close fist to lock position
+ * - Make an UPWARD FACING FIST for 3 seconds to enter move mode
+ * - Keep fist closed to move the field with your hand
+ * - OPEN your hand to lock the field position
  */
 
 export interface PlayingFieldBounds {
@@ -133,172 +133,121 @@ export class PlayingField {
   }
 
   /**
-   * STRICT palm detection - only triggers when:
-   * 1. BACK of hand facing camera (not front of palm) - verified by Z-depth
-   * 2. All 5 fingers fully extended and pointing UP
-   * 3. Fingers are STRAIGHT (not bent at any joint)
-   * 4. Palm is not tilted sideways
-   * 5. Hand showing back of hand gesture
-   * 
-   * Uses 3D depth (Z) to distinguish front vs back of palm:
-   * - Front of palm: fingertips are CLOSER to camera (lower Z) than palm base
-   * - Back of hand: fingertips are FURTHER from camera (higher Z) than palm base
+   * Detect UPWARD FACING FIST - triggers when:
+   * 1. Hand is making a fist (all fingers curled)
+   * 2. Fist is facing UPWARD (wrist is below knuckles)
+   * 3. Knuckles are roughly horizontal (not tilted)
    */
-  private isValidBackOfPalm(hand: HandData): boolean {
+  private isUpwardFacingFist(hand: HandData): boolean {
     const landmarks = hand.screenLandmarks;
     
-    // Must not be pinching or making a fist
-    if (hand.isPinching || hand.isFist) {
+    // Must be making a fist
+    if (!hand.isFist) {
       return false;
     }
     
-    const palmCenter = hand.palmCenter;
     const wrist = landmarks[HAND_LANDMARKS.WRIST];
-    
-    // ===== CHECK 1: Palm must be UPRIGHT (wrist below palm center) =====
-    const isUprightPalm = wrist.y > palmCenter.y + 30;
-    if (!isUprightPalm) {
-      return false;
-    }
-    
-    // ===== CHECK 2: BACK of hand facing camera (Z-depth check) =====
-    // When viewing BACK of hand, fingertips are FURTHER from camera than palm/wrist
-    // Z values: lower = closer to camera
-    const wristZ = wrist.z;
-    const palmBaseZ = (
-      landmarks[HAND_LANDMARKS.INDEX_MCP].z +
-      landmarks[HAND_LANDMARKS.MIDDLE_MCP].z +
-      landmarks[HAND_LANDMARKS.RING_MCP].z +
-      landmarks[HAND_LANDMARKS.PINKY_MCP].z
-    ) / 4;
-    
-    const fingertipZ = (
-      landmarks[HAND_LANDMARKS.INDEX_TIP].z +
-      landmarks[HAND_LANDMARKS.MIDDLE_TIP].z +
-      landmarks[HAND_LANDMARKS.RING_TIP].z +
-      landmarks[HAND_LANDMARKS.PINKY_TIP].z
-    ) / 4;
-    
-    // Back of hand: fingertips should be FURTHER from camera (higher Z) than palm base
-    // If fingertipZ < palmBaseZ, we're seeing the FRONT of the palm (wrong!)
-    const isBackOfHand = fingertipZ > palmBaseZ - 10; // Small tolerance
-    if (!isBackOfHand) {
-      return false;
-    }
-    
-    // ===== CHECK 3: Thumb position confirms back of hand =====
-    // On BACK of RIGHT hand: thumb is on RIGHT side (in mirrored view)
-    // On BACK of LEFT hand: thumb is on LEFT side (in mirrored view)
-    const thumbTip = landmarks[HAND_LANDMARKS.THUMB_TIP];
-    const pinkyMcp = landmarks[HAND_LANDMARKS.PINKY_MCP];
     const indexMcp = landmarks[HAND_LANDMARKS.INDEX_MCP];
+    const middleMcp = landmarks[HAND_LANDMARKS.MIDDLE_MCP];
+    const ringMcp = landmarks[HAND_LANDMARKS.RING_MCP];
+    const pinkyMcp = landmarks[HAND_LANDMARKS.PINKY_MCP];
     
-    // For back of hand, thumb position is opposite of front
-    const isRightHand = hand.handedness === 'Right';
-    // In mirrored webcam with back of hand showing:
-    // Right hand's thumb appears on the LEFT of pinky
-    // Left hand's thumb appears on the RIGHT of pinky
-    const thumbOnCorrectSide = isRightHand 
-      ? thumbTip.x < pinkyMcp.x  // Right hand back: thumb appears on left in mirror
-      : thumbTip.x > pinkyMcp.x; // Left hand back: thumb appears on right in mirror
+    // Calculate average knuckle position
+    const knuckleAvgY = (indexMcp.y + middleMcp.y + ringMcp.y + pinkyMcp.y) / 4;
+    const knuckleAvgX = (indexMcp.x + middleMcp.x + ringMcp.x + pinkyMcp.x) / 4;
     
-    if (!thumbOnCorrectSide) {
+    // ===== CHECK 1: Fist must be UPWARD (wrist below knuckles) =====
+    // In screen coordinates, Y increases downward, so wrist.y > knuckleAvgY means wrist is below
+    const isUpwardFist = wrist.y > knuckleAvgY + 20;
+    if (!isUpwardFist) {
       return false;
     }
     
-    // ===== CHECK 4: All 4 fingers must be STRAIGHT and pointing UP =====
-    const fingerChecks = [
-      { mcp: HAND_LANDMARKS.INDEX_MCP, pip: HAND_LANDMARKS.INDEX_PIP, dip: HAND_LANDMARKS.INDEX_DIP, tip: HAND_LANDMARKS.INDEX_TIP },
-      { mcp: HAND_LANDMARKS.MIDDLE_MCP, pip: HAND_LANDMARKS.MIDDLE_PIP, dip: HAND_LANDMARKS.MIDDLE_DIP, tip: HAND_LANDMARKS.MIDDLE_TIP },
-      { mcp: HAND_LANDMARKS.RING_MCP, pip: HAND_LANDMARKS.RING_PIP, dip: HAND_LANDMARKS.RING_DIP, tip: HAND_LANDMARKS.RING_TIP },
-      { mcp: HAND_LANDMARKS.PINKY_MCP, pip: HAND_LANDMARKS.PINKY_PIP, dip: HAND_LANDMARKS.PINKY_DIP, tip: HAND_LANDMARKS.PINKY_TIP }
+    // ===== CHECK 2: Knuckles should be roughly horizontal (not tilted) =====
+    const mcpYValues = [indexMcp.y, middleMcp.y, ringMcp.y, pinkyMcp.y];
+    const mcpYRange = Math.max(...mcpYValues) - Math.min(...mcpYValues);
+    const isLevel = mcpYRange < 60;
+    if (!isLevel) {
+      return false;
+    }
+    
+    // ===== CHECK 3: All fingers must be curled (tips close to palm) =====
+    const fingerTips = [
+      landmarks[HAND_LANDMARKS.INDEX_TIP],
+      landmarks[HAND_LANDMARKS.MIDDLE_TIP],
+      landmarks[HAND_LANDMARKS.RING_TIP],
+      landmarks[HAND_LANDMARKS.PINKY_TIP]
     ];
     
-    let straightFingers = 0;
+    const palmCenter = hand.palmCenter;
+    let curledFingers = 0;
     
-    for (const finger of fingerChecks) {
-      const mcp = landmarks[finger.mcp];
-      const pip = landmarks[finger.pip];
-      const dip = landmarks[finger.dip];
-      const tip = landmarks[finger.tip];
-      
-      // Finger must point UPWARD (tip.y < mcp.y, with Y increasing downward)
-      const isPointingUp = tip.y < mcp.y - 40;
-      
-      // Finger must be STRAIGHT: each joint progressively higher
-      // MCP -> PIP -> DIP -> TIP should have decreasing Y values
-      const isJointAligned = mcp.y > pip.y && pip.y > dip.y && dip.y > tip.y;
-      
-      // Finger must be extended (tip far from palm)
-      const tipDist = Math.sqrt(
+    for (const tip of fingerTips) {
+      const dist = Math.sqrt(
         Math.pow(tip.x - palmCenter.x, 2) +
         Math.pow(tip.y - palmCenter.y, 2)
       );
-      const isExtended = tipDist > 90;
-      
-      // Check finger is not bent backwards or curled
-      // The angle at PIP should not indicate bending
-      const pipToMcp = { x: mcp.x - pip.x, y: mcp.y - pip.y };
-      const pipToTip = { x: tip.x - pip.x, y: tip.y - pip.y };
-      const dotProduct = pipToMcp.x * pipToTip.x + pipToMcp.y * pipToTip.y;
-      const isNotBent = dotProduct < 0; // Negative dot product means roughly straight line
-      
-      if (isPointingUp && isJointAligned && isExtended && isNotBent) {
-        straightFingers++;
+      // Finger is curled if tip is close to palm
+      if (dist < 80) {
+        curledFingers++;
       }
     }
     
-    // Need ALL 4 fingers straight and pointing up
-    if (straightFingers < 4) {
+    // Need at least 3 fingers curled (allowing some tolerance)
+    if (curledFingers < 3) {
       return false;
     }
     
-    // ===== CHECK 5: Thumb must be extended outward =====
-    const thumbMcp = landmarks[HAND_LANDMARKS.THUMB_MCP];
+    // ===== CHECK 4: Thumb should be tucked or to the side =====
+    const thumbTip = landmarks[HAND_LANDMARKS.THUMB_TIP];
     const thumbDist = Math.sqrt(
       Math.pow(thumbTip.x - palmCenter.x, 2) +
       Math.pow(thumbTip.y - palmCenter.y, 2)
     );
-    const thumbExtended = thumbDist > 70;
-    if (!thumbExtended) {
+    // Thumb should be relatively close to palm (not extended)
+    const thumbTucked = thumbDist < 100;
+    if (!thumbTucked) {
       return false;
     }
     
-    // ===== CHECK 6: Palm facing camera (fingers spread horizontally) =====
-    const fingerSpread = Math.abs(indexMcp.x - pinkyMcp.x);
-    const hasPalmWidth = fingerSpread > 70;
-    if (!hasPalmWidth) {
-      return false;
-    }
-    
-    // ===== CHECK 7: MCPs should be roughly at same height (palm not tilted) =====
-    const mcpYValues = [
-      landmarks[HAND_LANDMARKS.INDEX_MCP].y,
-      landmarks[HAND_LANDMARKS.MIDDLE_MCP].y,
-      landmarks[HAND_LANDMARKS.RING_MCP].y,
-      landmarks[HAND_LANDMARKS.PINKY_MCP].y
-    ];
-    const mcpYRange = Math.max(...mcpYValues) - Math.min(...mcpYValues);
-    const isPalmLevel = mcpYRange < 50; // MCPs roughly aligned
-    if (!isPalmLevel) {
-      return false;
-    }
-    
-    // ===== CHECK 8: Z-depth consistency (palm flat toward camera) =====
-    const mcpZValues = [
-      landmarks[HAND_LANDMARKS.INDEX_MCP].z,
-      landmarks[HAND_LANDMARKS.MIDDLE_MCP].z,
-      landmarks[HAND_LANDMARKS.RING_MCP].z,
-      landmarks[HAND_LANDMARKS.PINKY_MCP].z
-    ];
-    const zRange = Math.max(...mcpZValues) - Math.min(...mcpZValues);
-    const isFlatTowardCamera = zRange < 40;
-    if (!isFlatTowardCamera) {
-      return false;
-    }
-    
-    // All checks passed - this is a valid back-of-hand gesture!
     return true;
+  }
+
+  /**
+   * Check if hand is OPEN (not a fist) - used to lock the field
+   */
+  private isOpenHand(hand: HandData): boolean {
+    const landmarks = hand.screenLandmarks;
+    const palmCenter = hand.palmCenter;
+    
+    // Hand should NOT be a fist
+    if (hand.isFist) {
+      return false;
+    }
+    
+    // Check that fingers are extended
+    const fingerTips = [
+      landmarks[HAND_LANDMARKS.INDEX_TIP],
+      landmarks[HAND_LANDMARKS.MIDDLE_TIP],
+      landmarks[HAND_LANDMARKS.RING_TIP],
+      landmarks[HAND_LANDMARKS.PINKY_TIP]
+    ];
+    
+    let extendedFingers = 0;
+    
+    for (const tip of fingerTips) {
+      const dist = Math.sqrt(
+        Math.pow(tip.x - palmCenter.x, 2) +
+        Math.pow(tip.y - palmCenter.y, 2)
+      );
+      // Finger is extended if tip is far from palm
+      if (dist > 80) {
+        extendedFingers++;
+      }
+    }
+    
+    // Need at least 3 fingers extended
+    return extendedFingers >= 3;
   }
 
   // Main update function - call every frame with hand data
@@ -318,14 +267,15 @@ export class PlayingField {
     }
 
     const palmPos = hand.palmCenter;
-    const isValidPalm = this.isValidBackOfPalm(hand);
-    const isFist = hand.isFist;
+    const isUpwardFist = this.isUpwardFacingFist(hand);
+    const isOpen = this.isOpenHand(hand);
     
-    // State machine for field manipulation (no resizing - only move)
+    // State machine for field manipulation
+    // NEW: Upward fist starts countdown, keep fist to move, open hand to lock
     switch (this.mode) {
       case 'normal':
-        // Check for valid open palm (start move countdown)
-        if (isValidPalm) {
+        // Check for upward facing fist (start move countdown)
+        if (isUpwardFist) {
           this.mode = 'move-pending';
           this.palmHoldStartTime = currentTime;
           this.lastPalmPosition = { x: palmPos.x, y: palmPos.y };
@@ -333,8 +283,8 @@ export class PlayingField {
         break;
 
       case 'move-pending':
-        if (isValidPalm) {
-          // Still showing valid palm - update progress
+        if (isUpwardFist) {
+          // Still holding upward fist - update progress
           const elapsed = currentTime - this.palmHoldStartTime;
           this.moveProgress = Math.min(1, elapsed / this.palmHoldDuration);
           this.lastPalmPosition = { x: palmPos.x, y: palmPos.y };
@@ -343,24 +293,24 @@ export class PlayingField {
             // Transition to moving mode
             this.mode = 'moving';
             this.moveProgress = 1;
-            console.log('Move mode activated! Close fist to place field.');
+            console.log('Move mode activated! Keep fist to move, open hand to lock.');
           }
         } else {
-          // Palm not valid anymore - cancel
+          // Fist not valid anymore - cancel
           this.mode = 'normal';
           this.moveProgress = 0;
         }
         break;
 
       case 'moving':
-        if (isFist) {
-          // Fist detected - lock position
+        if (isOpen) {
+          // Open hand detected - lock position
           this.mode = 'normal';
           this.moveProgress = 0;
           console.log('Field position locked!');
           this.notifyBoundsChanged();
         } else {
-          // Move field with palm position
+          // Keep fist closed to move field with hand position
           const centerX = palmPos.x;
           const centerY = palmPos.y;
           
@@ -438,7 +388,7 @@ export class PlayingField {
       ctx.fillStyle = '#22c55e';
       ctx.fillText(`${Math.round(this.moveProgress * 100)}%`, textX, this.lastPalmPosition.y + 75);
       ctx.font = 'bold 14px system-ui';
-      ctx.fillText('Show back of hand to move field', textX, this.lastPalmPosition.y + 95);
+      ctx.fillText('Hold upward fist to move field', textX, this.lastPalmPosition.y + 95);
       ctx.restore();
     }
     
@@ -456,7 +406,7 @@ export class PlayingField {
       ctx.fillStyle = 'rgba(34, 197, 94, 0.95)';
       ctx.font = 'bold 18px system-ui';
       ctx.textAlign = 'center';
-      ctx.fillText('✋ MOVING - Close fist to lock', centerX, b.y - 15);
+      ctx.fillText('✊ MOVING - Open hand to lock', centerX, b.y - 15);
       ctx.restore();
     }
     
