@@ -889,8 +889,57 @@ Remember: You're a smart AI assistant, not a command parser. Think, reason, and 
       return 'I\'m great! Ready to help you explore physics. What would you like to create?';
     }
     
+    // Gravity commands
+    if (lower.includes('gravity')) {
+      if (lower.includes('disable') || lower.includes('off') || lower.includes('zero') || lower.includes('none') || lower.includes('no gravity')) {
+        this.physics.setGravity(0, 0);
+        return 'Gravity disabled! Objects will now float. 🚀';
+      }
+      if (lower.includes('enable') || lower.includes('on') || lower.includes('normal') || lower.includes('reset')) {
+        this.physics.setGravity(0, 1);
+        return 'Gravity enabled! Back to normal. ⬇️';
+      }
+      if (lower.includes('reverse') || lower.includes('up')) {
+        this.physics.setGravity(0, -1);
+        return 'Gravity reversed! Objects will fall up. ⬆️';
+      }
+      if (lower.includes('strong') || lower.includes('high') || lower.includes('heavy') || lower.includes('increase')) {
+        this.physics.setGravity(0, 3);
+        return 'Heavy gravity! Objects fall faster now. 💪';
+      }
+      if (lower.includes('low') || lower.includes('light') || lower.includes('weak') || lower.includes('moon')) {
+        this.physics.setGravity(0, 0.3);
+        return 'Low gravity like the moon! 🌙';
+      }
+      if (lower.includes('left')) {
+        this.physics.setGravity(-1, 0);
+        return 'Gravity now pulls left! ⬅️';
+      }
+      if (lower.includes('right')) {
+        this.physics.setGravity(1, 0);
+        return 'Gravity now pulls right! ➡️';
+      }
+      // Default: disable if just "gravity" mentioned with disable intent
+      this.physics.setGravity(0, 0);
+      return 'Gravity disabled! 🚀';
+    }
+    
+    // Bouncy commands
+    if (lower.includes('bouncy') || lower.includes('bounce') || lower.includes('bounciness')) {
+      if (lower.includes('super') || lower.includes('max') || lower.includes('very')) {
+        this.physics.setAllBounciness(1.0);
+        return 'Super bouncy mode! 🏀';
+      }
+      if (lower.includes('no') || lower.includes('off') || lower.includes('disable') || lower.includes('zero')) {
+        this.physics.setAllBounciness(0);
+        return 'No bounce - objects will stick on impact.';
+      }
+      this.physics.setAllBounciness(0.8);
+      return 'Made everything bouncy! 🏀';
+    }
+    
     // Creation commands
-    if (lower.includes('create') || lower.includes('make') || lower.includes('add')) {
+    if (lower.includes('create') || lower.includes('make') || lower.includes('add') || lower.includes('spawn')) {
       const count = this.extractNumber(lower) || 1;
       const color = this.extractColorName(lower);
       
@@ -918,7 +967,7 @@ Remember: You're a smart AI assistant, not a command parser. Think, reason, and 
         return `Created ${count} ${color || 'green'} triangle${count > 1 ? 's' : ''}! 🔺`;
       }
       
-      if (lower.includes('rectangle') || lower.includes('square')) {
+      if (lower.includes('rectangle') || lower.includes('square') || lower.includes('box')) {
         for (let i = 0; i < Math.min(count, 10); i++) {
           this.physics.createRectangle(
             Math.random() * 600 + 200,
@@ -929,12 +978,66 @@ Remember: You're a smart AI assistant, not a command parser. Think, reason, and 
         }
         return `Created ${count} ${color || 'purple'} rectangle${count > 1 ? 's' : ''}! ⬛`;
       }
+      
+      if (lower.includes('star')) {
+        for (let i = 0; i < Math.min(count, 10); i++) {
+          this.physics.createStar(
+            Math.random() * 600 + 200,
+            Math.random() * 200 + 100,
+            5, 40, 20,
+            COLORS[color] || COLORS.gold
+          );
+        }
+        return `Created ${count} ${color || 'gold'} star${count > 1 ? 's' : ''}! ⭐`;
+      }
+      
+      if (lower.includes('hexagon')) {
+        for (let i = 0; i < Math.min(count, 10); i++) {
+          this.physics.createPolygon(
+            Math.random() * 600 + 200,
+            Math.random() * 200 + 100,
+            6, 35,
+            COLORS[color] || COLORS.cyan
+          );
+        }
+        return `Created ${count} ${color || 'cyan'} hexagon${count > 1 ? 's' : ''}! ⬡`;
+      }
+      
+      // Default to ball if shape not specified
+      for (let i = 0; i < Math.min(count, 10); i++) {
+        this.physics.createBall(
+          Math.random() * 600 + 200,
+          Math.random() * 200 + 100,
+          30,
+          COLORS[color] || COLORS.blue
+        );
+      }
+      return `Created ${count} ${color || 'blue'} ball${count > 1 ? 's' : ''}! 🎱`;
     }
     
     // Deletion
-    if (lower.includes('clear') || lower.includes('remove all') || lower.includes('delete all')) {
+    if (lower.includes('clear') || lower.includes('remove all') || lower.includes('delete all') || lower.includes('reset')) {
       this.physics.clearAllObjects();
       return 'Cleared everything! Fresh start. ✨';
+    }
+    
+    // Remove specific type
+    if (lower.includes('remove') || lower.includes('delete')) {
+      if (lower.includes('ball') || lower.includes('circle')) {
+        const circles = info.objects.filter(o => o.type === 'circle');
+        circles.forEach(o => this.physics.removeObject(o.id));
+        return `Removed ${circles.length} ball${circles.length !== 1 ? 's' : ''}!`;
+      }
+      if (lower.includes('triangle')) {
+        const tris = info.objects.filter(o => o.type === 'triangle');
+        tris.forEach(o => this.physics.removeObject(o.id));
+        return `Removed ${tris.length} triangle${tris.length !== 1 ? 's' : ''}!`;
+      }
+      if (lower.includes('rectangle') || lower.includes('square')) {
+        const rects = info.objects.filter(o => o.type === 'rectangle');
+        rects.forEach(o => this.physics.removeObject(o.id));
+        return `Removed ${rects.length} rectangle${rects.length !== 1 ? 's' : ''}!`;
+      }
     }
     
     // Counting
@@ -946,7 +1049,13 @@ Remember: You're a smart AI assistant, not a command parser. Think, reason, and 
       return `There are ${info.total} objects total in the scene.`;
     }
     
-    return 'I\'m having trouble connecting to my brain right now. Try basic commands like "create a ball" or "clear all"!';
+    // Recall
+    if (lower.includes('recall') || lower.includes('bring back') || lower.includes('center')) {
+      this.physics.recallBalls();
+      return 'Bringing all objects to the center! 🎯';
+    }
+    
+    return 'I\'m having trouble connecting to my brain right now. Try basic commands like "create a ball", "disable gravity", or "clear all"!';
   }
   
   private extractNumber(text: string): number | null {
